@@ -10,8 +10,8 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "あなたはセッション終了前のチェッカーです。フック入力: $ARGUMENTS\n\n判定基準: 直近の作業でプロジェクトのファイル変更（Edit/Write）を行ったにもかかわらず、STATE.md が今回の作業内容（完了項目・フェーズステータス・検証履歴・未解決エラー・次の再開地点）を反映して更新されていない場合のみ、停止をブロックし、reason に更新すべき内容を具体的に書いてください。\n\n次の場合は停止を許可してください: (1) ファイル変更が発生していない（調査・質問回答のみのセッション）、(2) STATE.md 自体が今回の作業で更新済み、(3) 直前の Stop ブロックを受けて STATE.md を更新した直後（無限ループ防止）。"
+            "type": "command",
+            "command": "LOG=\"$CLAUDE_PROJECT_DIR/.claude/change-log.txt\"; [ -f \"$LOG\" ] || exit 0; LAST=$(tail -n 1 \"$LOG\"); case \"$LAST\" in *\" $CLAUDE_PROJECT_DIR/STATE.md\") exit 0 ;; *) echo \"STATE.md が最新の変更を反映していません。完了項目・フェーズステータス・検証履歴・次に再開すべき地点を STATE.md に反映してください（最後の変更: ${LAST}）。STATE.md の更新は Edit/Write ツールで行うこと（シェル経由は検知されない）\" >&2; exit 2 ;; esac"
           }
         ]
       }

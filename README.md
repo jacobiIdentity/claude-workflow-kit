@@ -56,9 +56,23 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 
    目標・フェーズ一覧・**各フェーズの受け入れ基準**（着手前に確定、後付け禁止）を記入します。
 
-4. **Claude Code を起動してタスクを依頼**
+4. **.gitignore を整備（推奨）**
 
-   タスク着手時に STATE.md が読まれ、未完了フェーズがあればそこから再開されます。
+   自動生成される3ファイルは性質が異なります:
+
+   | ファイル | 推奨 | 理由 |
+   | --- | --- | --- |
+   | `.claude/change-log.txt` | ignore | 全 Edit/Write で追記され肥大するログ |
+   | `.claude/success-log.md` | commit | スキル化判断の根拠となる永続ログ。セッション・マシンを跨いで残す設計 |
+   | `STATE.md` | チーム方針次第 | 再開地点を共有するなら commit、個人作業ログ扱いなら ignore |
+
+   ```gitignore
+   .claude/change-log.txt
+   ```
+
+5. **Claude Code を再起動してタスクを依頼**
+
+   hooks はセッション開始時に読み込まれるため、導入直後は必ず Claude Code を再起動してください。タスク着手時に STATE.md が読まれ、未完了フェーズがあればそこから再開されます。
 
 ## 動作の流れ
 
@@ -70,7 +84,7 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
   → passed: true  → STATE.md 更新・success-log.md に1エントリ追記 → 完了宣言
   → passed: false → 指摘を executor に渡して修正 → 再検証（3回失敗で停止・人間に報告）
 セッション終了時
-  → Stopフックが「STATE.md が今回の作業を反映しているか」をチェック。未更新なら停止をブロック
+  → Stopフックが change-log.txt の最終エントリを確認。STATE.md 以外なら「未反映の変更あり」として停止をブロック
 ```
 
 ## コスト管理の注意（重要）
@@ -84,10 +98,15 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 
 ## hooks に関する注意
 
-- 本キットが使うのは `command` フック（PostToolUse）と `prompt` フック（Stop）のみです
+- 本キットが使うのは `command` タイプのフックのみです（Stop / PostToolUse）
 - `agent` タイプのフックは**実験的機能**のため採用していません。本番用途では command / prompt フックを優先してください
+- **hooks はセッション開始時に読み込まれます。** 導入・変更した直後のセッションでは発火しないため、必ず Claude Code を再起動してから動作確認してください
+- Stopフックの判定ロジック: `.claude/change-log.txt` の**最終エントリが `<プロジェクトルート>/STATE.md` であれば通過**、それ以外は exit 2 で停止をブロックします（change-log.txt が未生成の初回セッションは通過）。STATE.md の更新は Edit/Write ツールで行う前提です（シェル経由の追記は change-log に残らないためブロックされます）
+- **このリポジトリ自体を Claude Code で編集する場合**も、本キットの hooks と CLAUDE.md がそのまま有効になります。その場合は先に `STATE.md.template` から `STATE.md` を作成してから作業してください
 
 ## 導入後の動作確認
+
+※ 上記の通り、導入後は Claude Code を再起動してから実施してください。
 
 1. 小さめの実タスクを1つ依頼し、①完了宣言の前に verifier が自動で呼ばれるか、②STATE.md を更新せずに終了しようとすると Stop フックがブロックするか、を確認
 2. `.claude/change-log.txt` に Edit/Write のログが追記されているか確認
