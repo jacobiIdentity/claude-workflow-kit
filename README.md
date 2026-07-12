@@ -15,6 +15,8 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 | `CLAUDE.md` | ワークフロー規約本体。STATE.md運用・検証フロー・コスト抑制・スキル化のルール |
 | `STATE.md.template` | チェックポイントのテンプレート（フェーズ／受け入れ基準／検証履歴／再開地点） |
 | `.claude/settings.json` | hooks（Stop: STATE.md更新チェック、PostToolUse: 変更ログ追記）と permissions（git commit/push は要承認） |
+| `.claude/hooks/stop-state-check.sh` | Stopフック本体（STATE.md更新チェック・skip機構・10分失効） |
+| `.claude/hooks/log-change.sh` | PostToolUseフック本体（プロジェクト配下のEdit/Writeのみ記録） |
 | `.claude/agents/executor.md` | 実装担当サブエージェント（`model: inherit`、`maxTurns: 50`） |
 | `.claude/agents/verifier.md` | 検証担当サブエージェント（`model: haiku`、Read/Grep/Globのみ、`maxTurns: 20`） |
 | `.claude/skills/skill-harvest/SKILL.md` | 成功パターンを再利用可能なスキルへ抽象化する手順 |
@@ -98,10 +100,13 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 
 ## hooks に関する注意
 
-- 本キットが使うのは `command` タイプのフックのみです（Stop / PostToolUse）
+- 本キットが使うのは `command` タイプのフックのみです（Stop / PostToolUse）。フックの実体は `.claude/hooks/` 配下のスクリプト（`stop-state-check.sh` / `log-change.sh`）で、settings.json はそれを呼び出すだけです
 - `agent` タイプのフックは**実験的機能**のため採用していません。本番用途では command / prompt フックを優先してください
 - **hooks はセッション開始時に読み込まれます。** 導入・変更した直後のセッションでは発火しないため、必ず Claude Code を再起動してから動作確認してください
-- Stopフックの判定ロジック: `.claude/change-log.txt` の**最終エントリが `<プロジェクトルート>/STATE.md` であれば通過**、それ以外は exit 2 で停止をブロックします（change-log.txt が未生成の初回セッションは通過）。STATE.md の更新は Edit/Write ツールで行う前提です（シェル経由の追記は change-log に残らないためブロックされます）
+- Stopフックの判定ロジック（`stop-state-check.sh`）: `.claude/change-log.txt` の**最終エントリが `<プロジェクトルート>/STATE.md` であれば通過**、それ以外は exit 2 で停止をブロックします（change-log.txt が未生成の初回セッションは通過）。STATE.md の更新は Edit/Write ツールで行う前提です（シェル経由の追記は change-log に残らないためブロックされます）
+- **skip機構**（`stop-state-check.sh`）: ユーザーが明示的に承認した場合に限り、`.claude/skip-state-check` ファイルを作成すると Stopフックのチェックを1回だけ免除できます。skipファイルは使用時に自動削除され、作成から10分を超えると失効します（Claude が自分の判断で作成することは禁止。CLAUDE.md §5 の例外規定を参照）
+- **変更ログの記録範囲**（`log-change.sh`）: プロジェクトルート配下（ディレクトリ境界込み）の Edit/Write のみを記録します。プロジェクト外のファイル（グローバル設定・メモリファイル等）への書き込みは記録されず、Stopフックの誤発火要因になりません。file_path が欠損・空のイベントも記録しません
+- **保証範囲**: Stopフックが保証するのは「追跡対象（Edit/Write）の最後の変更先が STATE.md であること」のみで、STATE.md の記載内容の完全性までは検証しません。Bash 経由のファイル変更、および同一リポジトリを複数セッションで並行編集するケースは追跡対象外です
 - **このリポジトリ自体を Claude Code で編集する場合**も、本キットの hooks と CLAUDE.md がそのまま有効になります。その場合は先に `STATE.md.template` から `STATE.md` を作成してから作業してください
 
 ## 導入後の動作確認

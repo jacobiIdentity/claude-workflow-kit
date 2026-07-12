@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "LOG=\"$CLAUDE_PROJECT_DIR/.claude/change-log.txt\"; [ -f \"$LOG\" ] || exit 0; LAST=$(tail -n 1 \"$LOG\"); case \"$LAST\" in *\" $CLAUDE_PROJECT_DIR/STATE.md\") exit 0 ;; *) echo \"STATE.md が最新の変更を反映していません。完了項目・フェーズステータス・検証履歴・次に再開すべき地点を STATE.md に反映してください（最後の変更: ${LAST}）。STATE.md の更新は Edit/Write ツールで行うこと（シェル経由は検知されない）\" >&2; exit 2 ;; esac"
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-state-check.sh\""
           }
         ]
       }
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '\"[\" + (now | strftime(\"%Y-%m-%d %H:%M:%S\")) + \"] \" + .tool_name + \" \" + (.tool_input.file_path // \"unknown\")' >> \"$CLAUDE_PROJECT_DIR/.claude/change-log.txt\""
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-change.sh\""
           }
         ]
       }

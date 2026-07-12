@@ -103,6 +103,7 @@ verifier:  passed: true  → メイン: 完了宣言・STATE.md 更新
 ## 5. 禁止事項
 
 - STATE.md を更新せずにフェーズ完了・作業完了を宣言すること
+  - 例外: ユーザーが**当該タスク内で明示的に承認した場合に限り**、`.claude/skip-state-check` を作成して Stopフックのチェックを1回だけ免除できる（skipファイルは使用時に自動削除・作成から10分で失効）。免除を使った事実は必ず報告する。Claude が自分の判断で skip-state-check を作成することは禁止
 - **実装後に受け入れ基準を後付け・書き換えて検証を通すこと**（基準は着手前に STATE.md に確定させる）
 - verifier の指摘を無視して完了宣言すること
 - verifier 検証を通すためだけの表面的な修正（アサーション弱体化・チェック回避など）
@@ -118,6 +119,9 @@ verifier:  passed: true  → メイン: 完了宣言・STATE.md 更新
 ├── settings.json              # Stopフック（STATE.md更新チェック）/ PostToolUseフック（変更ログ）
 ├── success-log.md             # 成功実績の永続ログ（スキル化判断の根拠。追記のみ）
 ├── change-log.txt             # 変更ファイルログ（PostToolUseフックが自動追記）
+├── hooks/
+│   ├── stop-state-check.sh    # Stopフック本体（STATE.md更新チェック・skip機構・10分失効）
+│   └── log-change.sh          # PostToolUseフック本体（プロジェクト配下のEdit/Writeのみ記録）
 ├── agents/
 │   ├── executor.md            # 実装担当
 │   └── verifier.md            # 検証担当（読み取り専用）
