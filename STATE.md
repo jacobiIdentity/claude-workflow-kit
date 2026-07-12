@@ -28,11 +28,11 @@
   - 受け入れ基準: 重複・矛盾チェック結果、現行フック原文、環境確認（jq / stat）、PostToolUse入力JSON確認、4節の採否判定表を提示しユーザー承認を得る
 - [x] Phase 1: グローバル CLAUDE.md への追記
   - 受け入れ基準: 採用判定の3節（Change scope / Diagnostic-first / Hook conflicts）のみを追記。適用前にunified diffを提示し承認を得る。既存行は一切変更しない。Phased execution節は追加しない
-- [~] Phase 2: workflow-kit フック修正（スクリプト分離方式）※実装・テスト完了。READMEパッチ承認とcommit承認待ち
+- [x] Phase 2: workflow-kit フック修正（スクリプト分離方式）※commit `e03f3a2` 完了（push なし）
   - 受け入れ基準: ①stop-state-check.sh / log-change.sh を .claude/hooks/ に新規作成し settings.json から呼び出す形に変更 ②stop-state-check.sh のエラーメッセージに現行の「完了項目・フェーズステータス・検証履歴・次に再開すべき地点を反映」「STATE.md の更新は Edit/Write ツールで行うこと（シェル経由は検知されない）」のガイダンスを引き継ぐ ③適用前にスクリプト全文とsettings.jsonパッチを提示し承認を得る ④統合テストT1〜T8全合格を表で報告 ⑤workflow-kit CLAUDE.md §5へのskip例外追記案を提示（適用は承認後） ⑥承認後にcommit、pushしない
-- [ ] Phase 3: 再計測ベースラインの作成
+- [x] Phase 3: 再計測ベースラインの作成
   - 受け入れ基準: ~/.claude/insights-baseline.md をユーザー指定の内容（注意事項・分類カウント・定性フラグ）で新規作成する
-- [ ] Phase 4: 任意（ユーザーが明示承認した場合のみ着手）
+- [x] Phase 4: 任意（ユーザーが明示承認した場合のみ着手）※2026-07-12 ユーザー判断により本日対応不要（スキップ確定）
   - 受け入れ基準: /statusスキル、条件付き検証フック（tsconfig存在時のみtsc --noEmit、prettierは変更ファイルのみ）。Playwrightは今回導入しない
 
 ## 完了項目チェックリスト
@@ -47,7 +47,9 @@
 - [x] Phase 2: settings.json をスクリプト呼び出し方式に変更（permissions無変更）
 - [x] Phase 2: CLAUDE.md §5 skip例外追記・§6 構成図に hooks/ 追加
 - [x] Phase 2: 統合テストT1〜T8全合格（mktemp擬似プロジェクトで実施。初回のT3/T5/T7 FAILはハーネス側のgrep -c exit code処理バグで、修正後に全PASS）
-- [x] Phase 2: READMEパッチ（hooksに関する注意節）を提示（未適用・承認待ち）
+- [x] Phase 2: README更新（「hooksに関する注意」節＋「ファイル構成と役割」表に hooks 2行、CLAUDE.md §6 と整合）
+- [x] Phase 2: 6ファイル（hooks 2スクリプト・settings.json・CLAUDE.md・README.md・STATE.md）を commit `e03f3a2`（change-log.txt は除外、push なし）
+- [x] Phase 3: ~/.claude/insights-baseline.md をユーザー指定内容（注意事項4点・分類カウント・拒否理由分類方針・定性フラグ5項目）で新規作成
 
 ## 検証履歴
 
@@ -75,6 +77,6 @@
 
 ## 次に再開すべき地点
 
-- 再開フェーズ: Phase 2（現段階: README適用済み。残手順: ①commit message案の承認 → ②commit（push禁止） → Phase 3へ）
-- 最初にやること: 提示済みの commit message 案への承認可否をユーザーに確認し、承認後に Phase 2 一式を commit する
-- 前提・注意事項: フック実装・統合テスト（T1〜T8全PASS）・README更新（節＋ファイル構成表）は完了済み。新フックは次回セッション（Claude Code再起動後）から有効（本セッションは旧フック稼働中）。次回セッション（Claude Code再起動後）に settings.json 経由の実地確認を行う — プロジェクト内ファイルを1つ編集し、①change-log に記録されること、②STATE.md 未更新で Stop がブロックされること、③プロジェクト外への書き込みが記録されないこと、を確認する。T1〜T8 はスクリプト直接実行のため、settings.json の配線部分は未検証
+- 再開フェーズ: なし（本タスク完了。Phase 0〜3 実施、Phase 4 はユーザー判断でスキップ）
+- 最初にやること: 次回セッション（Claude Code再起動後）に settings.json 経由の実地確認を行う — プロジェクト内ファイルを1つ編集し、①change-log に記録されること、②STATE.md 未更新で Stop がブロックされること、③プロジェクト外への書き込みが記録されないこと、を確認する。T1〜T8 はスクリプト直接実行のため、settings.json の配線部分は未検証
+- 前提・注意事項: Phase 2 実装は commit `e03f3a2`、タスク完了記録は本commitに含む（いずれもユーザー承認済み・push済み）。insights-baseline.md はプロジェクト外のため commit 対象外。Phase 4（/statusスキル・条件付き検証フック）は未実施のまま将来の任意タスクとして残る
