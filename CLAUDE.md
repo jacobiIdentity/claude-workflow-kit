@@ -93,6 +93,7 @@ verifier:  passed: true  → メイン: 完了宣言・STATE.md 更新
     ```
 
   - STATE.md はタスク単位でリセットされ得るため、成功実績は STATE.md ではなく必ずこの永続ファイルに残す。
+  - **success-log.md への追記は STATE.md 更新より前に行い、STATE.md を最後の Edit にする**（Stopフックは change-log の最終エントリが STATE.md であることを要求するため）。
 - **`.claude/success-log.md` 上で同種の手順が3回以上成功していたら**、`skill-harvest` スキル（`.claude/skills/skill-harvest/SKILL.md`）を使ってスキル化を提案する。
 - 「同種の手順」の判断基準: トリガー条件・手順ステップ・検証方法がほぼ同一であること。
 - 提案時は「スキル名案」「抽象化できる範囲」「3回の成功実績の要約（success-log.md からの引用）」を提示し、ユーザーの承認を得てから SKILL.md を作成する。

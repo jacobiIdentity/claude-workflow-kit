@@ -81,7 +81,7 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
   → メイン: STATE.md を読み、再開地点と受け入れ基準を確認
   → メイン: executor に実装を依頼（executor は自らテストまで実行）
   → メイン: 成果物を verifier に検証依頼（受け入れ基準を渡す）
-  → passed: true  → STATE.md 更新・success-log.md に1エントリ追記 → 完了宣言
+  → passed: true  → success-log.md に1エントリ追記 → STATE.md 更新 → 完了宣言
   → passed: false → 指摘を executor に渡して修正 → 再検証（3回失敗で停止・人間に報告）
 セッション終了時
   → Stopフックが change-log.txt の最終エントリを確認。STATE.md 以外なら「未反映の変更あり」として停止をブロック
