@@ -17,6 +17,7 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 | `.claude/settings.json` | hooks（Stop: STATE.md更新チェック、PostToolUse: 変更ログ追記）と permissions（git commit/push は要承認） |
 | `.claude/hooks/stop-state-check.sh` | Stopフック本体（STATE.md更新チェック・skip機構・10分失効） |
 | `.claude/hooks/log-change.sh` | PostToolUseフック本体（プロジェクト配下のEdit/Writeのみ記録） |
+| `.claude/commands/phase-goal.md` | /goal 文面組み立てコマンド（STATE.mdの該当フェーズの受け入れ基準からコピペ実行用の /goal 文面を生成） |
 | `.claude/agents/executor.md` | 実装担当サブエージェント（`model: inherit`、`maxTurns: 50`） |
 | `.claude/agents/verifier.md` | 検証担当サブエージェント（`model: haiku`、Read/Grep/Globのみ、`maxTurns: 20`） |
 | `.claude/skills/skill-harvest/SKILL.md` | 成功パターンを再利用可能なスキルへ抽象化する手順 |
@@ -89,6 +90,21 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
   → Stopフックが change-log.txt の最終エントリを確認。STATE.md 以外なら「未反映の変更あり」として停止をブロック
 ```
 
+## /goal との併用
+
+フェーズ単位の自律実行には、Claude Code ビルトインの `/goal` コマンドの併用を推奨します（規約は CLAUDE.md §7）。
+
+- **完了条件は verifier に一本化** — /goal の完了条件は「STATE.md 記載の該当フェーズの受け入れ基準を verifier が `passed: true` と判定すること」に寄せ、/goal 側の条件評価と verifier 検証で判断を二重化しません
+- **ターン上限を必ず指定**（推奨: 5）— /goal は条件文に停止句を含める方式のため、文面に「5ターンで停止」を含めます
+- **ターン上限は小さく始めてください（コスト注意）** — 自律実行はターン数に比例してコストが増えます。まず 5 で運用し、不足する場合のみフェーズを分割するか上限を見直します
+- **`/phase-goal <フェーズ番号>`** を実行すると、STATE.md の事前定義済み受け入れ基準から次の形式の /goal 文面が組み立てられます。カスタムコマンドからビルトイン /goal を直接起動する仕組みは Claude Code に存在しないため、**出力された文面をコピペして実行**してください:
+
+  ```
+  /goal STATE.md の Phase <番号>「<フェーズ名>」の受け入れ基準（<受け入れ基準の原文>）を verifier サブエージェントが passed: true と判定するまで。5ターンで停止
+  ```
+
+- /goal 実行中も Stopフック・STATE.md 更新・検証履歴の規約はすべてそのまま適用されます。/goal はこれらの規約を免除しません
+
 ## コスト管理の注意（重要）
 
 このキットに**予算上限（$X に達したら停止する）機能はありません**。Claude Code の標準機能に予算キルスイッチがないためです。代替手段は次の2つです:
@@ -117,3 +133,4 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 2. `.claude/change-log.txt` に Edit/Write のログが追記されているか確認
 3. 同種タスクを3回成功させ（`.claude/success-log.md` に3エントリ）、skill-harvest によるスキル化提案が出るか確認
 4. わざと途中でセッションを終了し、新セッションで STATE.md の「次に再開すべき地点」から再開されるか確認
+5. `/phase-goal <フェーズ番号>` で組み立てた /goal を実行中に停止を試み（STATE.md を未更新のままターンを終わらせる）、Stopフック（STATE.md 未更新ブロック）と /goal 評価が両立して動くことを確認

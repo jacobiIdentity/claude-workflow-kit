@@ -122,6 +122,8 @@ verifier:  passed: true  → メイン: 完了宣言・STATE.md 更新
 ├── hooks/
 │   ├── stop-state-check.sh    # Stopフック本体（STATE.md更新チェック・skip機構・10分失効）
 │   └── log-change.sh          # PostToolUseフック本体（プロジェクト配下のEdit/Writeのみ記録）
+├── commands/
+│   └── phase-goal.md          # /goal 文面組み立てコマンド（STATE.mdの受け入れ基準から生成）
 ├── agents/
 │   ├── executor.md            # 実装担当
 │   └── verifier.md            # 検証担当（読み取り専用）
@@ -131,3 +133,14 @@ STATE.md                       # チェックポイント（STATE.md.templateか
 ```
 
 これらのファイルの役割・構成を変更する場合は、必ずユーザーの明示的な指示を得ること。
+
+---
+
+## 7. ゴール駆動実行（/goal 併用時）
+
+- フェーズ単位の自律実行には、ビルトインの `/goal` コマンドの使用を推奨する。
+- /goal の完了条件は「**STATE.md 記載の該当フェーズの受け入れ基準を verifier が `passed: true` と判定すること**」に寄せる。
+  - /goal 側の条件評価と verifier 検証で判断を二重化しない。条件充足の根拠は常に verifier の判定（検証履歴に記録されたもの）とする。
+- **ターン上限を必ず条件文に含める（推奨: 5）。** 例:「…verifier が passed: true と判定するまで。5ターンで停止」
+- /goal 使用時も、Stopフック・STATE.md 更新・検証履歴の規約は**すべてそのまま適用される**。/goal はこれらの規約を免除しない。
+- `/phase-goal <フェーズ番号>`（`.claude/commands/phase-goal.md`）で、STATE.md の事前定義済み受け入れ基準から /goal 文面を組み立てられる。カスタムコマンドからビルトイン /goal を直接起動する仕組みは存在しないため、出力された文面をユーザーがコピペして実行する。
