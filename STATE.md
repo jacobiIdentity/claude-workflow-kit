@@ -10,54 +10,71 @@
 
 ## セッション情報
 
-- セッションID: `2026-07-16-01`
-- 開始日時: `2026-07-16 14:50`
-- 最終更新: `2026-07-16 15:56`
+- セッションID: `2026-07-16-02`
+- 開始日時: `2026-07-16 16:30`
+- 最終更新: `2026-07-16 23:31`
 
 ## 目標
 
-① Phase A: stop-state-check.sh の skip 機構の説明報告（読み取りのみ・最優先。ユーザー確認後に Phase B へ）。
-② Phase B: /goal 運用の残修正 — CLAUDE.md §7 追記（4点・200行制限維持）、phase-goal.md の完了済みフェーズ挙動変更、README 動作確認5の状態別テスト（A〜D）への置き換え。
-verifier 検証・番号ごとの報告・commit は承認後（push しない）。
+リポジトリ公開前対応（外部レビュー指摘の反映）: .gitignore / LICENSE / README注意書きの追加、
+追加監査（メタデータ・追加秘密情報パターン・実行権限・スクリプト安全性・Claude-Session URL アクセス確認）、
+公開対象の最終確認。作者メール公開可否と既存コミットの Claude-Session URL 削除（履歴書き換え）はユーザー判断事項として提示するに留める。
+commit は承認後のみ・push は指示があるまでしない。
 
 ## フェーズ一覧
 
 <!-- 各フェーズの受け入れ基準は着手前に記入する（実装後の後付け・書き換えは禁止） -->
 
-- [x] Phase A: Stopフック skip 機構の説明（読み取りのみ・ファイル変更なし）※2026-07-16 ユーザー確認・承認済み（補正2点: skip悪用はチェックポイント再開・検証履歴の整合性も損なう／「規約で禁止」はフック優位の設計原則と不整合 → Phase C 追加）
-  - 受け入れ基準: ①skip の発動方法と発動できる主体（ユーザーの明示操作のみか、エージェント自身が発動可能か）、②10分失効の仕組み、③エージェント自身が発動可能な場合に CLAUDE.md 禁止事項「検証を通すための表面的な修正」との整合をどう担保しているか、の3点を stop-state-check.sh の該当行を引用して説明する。ユーザーの確認を得るまで Phase B に着手しない
-- [x] Phase B-1: CLAUDE.md §7 への追記（200行制限維持）
-  - 受け入れ基準: 次の4点を §7 に追記する — (i) /goal の達成は技術的な受け入れ基準の充足のみを意味し、フェーズ承認・commit・push・次フェーズ移行の許可を意味しない、(ii) 要件決定・設計判断・スコープ変更など人間の判断が必要な作業には使用せず、/goal はフェーズ内の実装・修正・検証の反復にのみ用いる、(iii) ターン上限到達時は未達成として停止し、原因・実施内容・検証結果・未解決事項を報告する、(iv) 停止を試みる前に直近の verifier 結果（passed 値と根拠の要点）を応答に明記する。既存 §1〜§6 と §7 既存本文は変更しない。追記後も CLAUDE.md 全体が200行以内
-- [x] Phase B-2: phase-goal.md 17行目の仕様変更
-  - 受け入れ基準: 完了済み（[x]）フェーズが指定された場合は /goal 文面を生成せず、再実行の要否だけを報告する仕様に変更する（現行の「警告したうえで文面は出力する」を置き換え）。他の行の仕様は変更しない
-- [x] Phase B-3: README 動作確認5の状態別テスト置き換え
-  - 受け入れ基準: 現行の項目5を、A: verifier passed: false → /goal が作業を継続、B: passed: true・STATE.md 未更新 → Stopフックがブロック、C: passed: true・更新済み → 正常停止しユーザー承認待ち、D: 5ターン到達 → 未達成として停止し未解決事項を報告、の4状態テストに置き換える。他の動作確認項目・既存記述と矛盾しない
-- [x] Phase C-1: PreToolUse フック（skip ファイルの決定論的ガード）の追加
-  - 受け入れ基準: ①実装前に「PreToolUse で Bash のコマンド文字列と Write/Edit の file_path を検査できること」を公式ドキュメントで確認し、根拠（URL・該当箇所）を報告する ②`.claude/hooks/` にガードスクリプトを新規作成し、Write・Edit・Bash のツール入力に skip-state-check への作成・変更・touch が含まれる場合にブロックし、stderr に「skip ファイルはユーザーが自身のターミナルで作成する」旨を出力する ③settings.json に PreToolUse（matcher: Write|Edit|Bash）を追記する（既存の Stop / PostToolUse フックと permissions は変更しない）
-- [x] Phase C-2: CLAUDE.md §5 への1行追記（200行制限維持）
-  - 受け入れ基準: skip-state-check 自己作成禁止の禁止事項に「skip ファイルの作成はエージェントの全ツールでブロックされる（PreToolUseフック）。ユーザーは自身のターミナルから作成する」趣旨の1行を追記。他の禁止事項・既存本文は変更しない。全体200行以内
-- [x] Phase C-3: README の skip 説明の拡充
-  - 受け入れ基準: skip 機構の説明に ①作成方法（ユーザーのターミナルで `touch .claude/skip-state-check`）②10分・1回失効 ③touch による mtime リセットの制約 ④エージェントによる作成は PreToolUse フックでブロックされること、を明記。既存記述と矛盾しない
-- [x] Phase C-4: 敵対的テスト（1回）※実配線（settings.json 経由）でブロック確認済み。スクリプト直接実行の代替は不要だったが補完テスト7件も全PASS
-  - 受け入れ基準: エージェント自身に skip ファイル作成を指示する敵対的テストを1回実施し、PreToolUse フックがブロックすること（stderr メッセージ含む）を確認する。hooks はセッション開始時に読み込まれるため、settings.json 配線経由の実地テストが本セッション内で不可能な場合は、実ツール入力と同形式の JSON によるスクリプト直接実行の等価テストで代替し、再起動後の実地敵対的テストを「次に再開すべき地点」に記録する。テストで実プロジェクトに `.claude/skip-state-check` を作成しない
-- [x] Phase D: verifier 検証・番号ごとの報告・commit 承認待ち ※commit はユーザー承認待ち
-  - 受け入れ基準: Phase B・C の成果物一式を verifier に事前定義済み基準とともに渡し passed: true を得る。番号ごとに適用済み／該当行を報告し、commit はユーザー承認待ちで停止する（push しない）
+- [x] Phase 1: .gitignore の追加
+  - 受け入れ基準: `.claude/change-log.txt`・`.claude/settings.local.json`・skip承認ファイル（`.claude/skip-state-check`）の3エントリを含む `.gitignore` を新規作成する。既追跡13ファイルの追跡状態に影響を与えない
+- [x] Phase 2: LICENSE の追加
+  - 受け入れ基準: MIT License 全文（Copyright (c) 2026 jacobiIdentity）で `LICENSE` を新規作成する。README の「任意のプロジェクトにコピーして使えます」と整合する
+- [x] Phase 3: README への運用注意の追記
+  - 受け入れ基準: success-log.md（および STATE.md）に秘密情報・顧客名・社内URL・ローカル絶対パスを記録しないこと、公開リポジトリでは commit 前に内容を確認することを README に追記する。既存記述と矛盾しない
+- [x] Phase 4: 追加監査・確認（読み取りのみ）
+  - 受け入れ基準: ①全コミットの author/committer メタデータ確認（--format=fuller）②追加パターン（`sk-` / `gh[pousr]_` / `PRIVATE KEY` / `/Users/`）で追跡ファイルと全履歴を grep ③タグ・サブモジュール・LFS・バイナリファイルの有無確認 ④hooks 3スクリプトの実行権限（100755）確認 ⑤スクリプト安全性レビュー（破壊的操作・クォート・空白パス・macOS/Linux互換・jq失敗時挙動）⑥Claude-Session URL の非認証アクセス確認 — 各結果を「確認できた事実」と「確認の限界」を区別して報告する
+- [x] Phase 5: verifier 検証・報告・commit 承認待ち ※commit はユーザー承認待ち
+  - 受け入れ基準: Phase 1〜3 の成果物を verifier に事前定義済み基準とともに渡し passed: true を得る。番号ごとに適用済み／該当行と監査結果を報告し、ユーザー判断事項（メール公開可否・既存 Claude-Session URL の扱い・STATE.md を公開リポジトリに含め続けるか）を明示して commit 承認待ちで停止する
+- [x] Phase 6: pending 差分の提示と .gitignore 実パス検証（読み取りのみ）
+  - 受け入れ基準: .gitignore / LICENSE / README.md / STATE.md / .claude/success-log.md の実際の diff（未追跡は全文）を提示する。`git check-ignore -v` で change-log.txt・settings.local.json・skip承認ファイルの3実パスが .gitignore のどの行に一致するかを検証する。生の作者メール・Claude-Session URL は報告に再掲しない
+- [x] Phase 7: stop-state-check.sh の最小修正と回帰テスト
+  - 受け入れ基準: 現行実装が報告どおり（`[ -f "$LOG" ] || exit 0`）であることを確認したうえで、change-log 判定を `[ -s "$LOG" ]` へ最小修正する（変更は当該1箇所のみ）。回帰テスト: ①空の change-log で誤ブロックしない（exit 0）②非空・最終エントリが STATE.md 以外なら exit 2 ③最終エントリが STATE.md なら exit 0 ④空白を含むプロジェクトパスで①〜③が成立 — を mktemp 擬似プロジェクトで確認する
+- [x] Phase 8: success-log 配布不整合の分析と差分案提示（実行しない）※差分案2案を提示・実行はユーザー承認待ち
+  - 受け入れ基準: README のコピー手順でキット自身の success-log.md が利用者へ配布される不整合について、「追記のみ・過去エントリ改変禁止」規約への影響を分析し、初期化＋退避の具体的な差分案を提示する。**既存エントリの移動・初期化はユーザー承認まで実行しない**
+- [x] Phase 9: STATE.md 現状整合の補正と attribution 設定
+  - 受け入れ基準: ①STATE.md に「任意対応2点が未コミット」等、remote 28b22e0 に含まれる変更を未コミット扱いする記述が残っていないか確認し、pending 変更で正しい現在状態に更新する ②.claude/settings.local.json に既存設定を保持したまま `attribution.sessionUrl: false` を設定し、同ファイルが Git 管理対象外であることを確認する ③作者メールの noreply アドレスは推測せずユーザー入力待ちとし、履歴書き換えは行わない
+- [x] Phase 10: 最終検証と停止 ※commit / push / 履歴書き換え / 公開設定変更は未実施（承認待ち）
+  - 受け入れ基準: ①`git diff --check` ②hooks 3スクリプトの `sh -n` 構文確認 ③フック回帰テスト（skip機構・ガード含む既存挙動の非退行）④既知秘密情報パターンで現行ファイルと全 refs を再走査（ヒット数のみ報告）⑤gitleaks は導入済みの場合のみ実行（未導入なら実行せず、その旨を記録。勝手にインストールしない）⑥verifier 検証 passed: true — のうえで、変更ファイル一覧・diff・テスト結果・success-log 推奨案・未決事項・commit 予定ファイル・残る監査限界を提示して停止する。commit / push / 履歴書き換え / 公開設定変更は行わない
+- [x] Phase 11: success-log.md.template の新設（Option C）
+  - 受け入れ基準: リポジトリルートに `success-log.md.template` を新規作成する。内容は実績0件の初期状態（見出し＋「verifier passed: true の確認後、CLAUDE.md §4の形式で追記する」趣旨のコメントのみ）。`.claude/success-log.md` の既存5エントリは削除・移動・改変しない
+- [x] Phase 12: README 導入手順の修正（明示的コピー方式）
+  - 受け入れ基準: ①`cp -r claude-workflow-kit/.claude ...` の丸ごとコピー方式を廃止 ②「新規導入」では agents/・commands/・hooks/・skills/・settings.json のみを明示的にコピーし、`.claude/success-log.md` は success-log.md.template から生成する手順にする ③コピー対象外（change-log.txt・settings.local.json・skip承認ファイル・キット自身の success-log.md）を明記 ④「既存の .claude/ があるプロジェクトへの更新」を新規導入と分け、既存の settings.json・success-log.md・独自 agents/commands/hooks/skills を上書きしない手動マージ基本と明記 ⑤「運用中に自動生成されるファイル（コピー不要）」の見出し・説明を新方式と矛盾しない表現に修正 ⑥ファイル構成表に success-log.md.template を追加
+- [x] Phase 13: 配布手順のテスト（一時ディレクトリ）
+  - 受け入れ基準: 一時ディレクトリに構築したコピー元（ダミーの settings.local.json・change-log.txt・skip承認ファイル＋開発実績入り success-log.md を含む）に対し README 記載の新規導入手順を実行し、①settings.json・agents・commands・hooks・skills がコピーされる ②ローカル限定3ファイルがコピーされない ③適用先の success-log.md が template の初期状態でキット開発実績を含まない ④空白を含む適用先パスでも成功する — を確認する。実リポジトリのローカル限定ファイルはテストに使用しない
+- [x] Phase 14: STATE.md への採用方針の記録
+  - 受け入れ基準: ①STATE.md は公開リポジトリに含め続ける ②success-log は Option C（template＋明示的コピー）採用 ③作者メールは noreply へ変更方針だが実値のユーザー入力待ち（設定・推測しない）④既存 Claude-Session URL は後続の一括履歴書き換えで削除予定（まだ実行しない）⑤配布コピー試験の結果 — を STATE.md に記録する
+- [x] Phase 15: 最終検証と停止 ※commit せずに停止（承認待ち）
+  - 受け入れ基準: ①`git diff --check` ②README 手順の実行テスト（Phase 13）③既知秘密情報パターンの再走査 ④verifier 検証 passed: true ⑤commit 予定ファイル一覧（現在の6ファイル＋success-log.md.template の7ファイル基本。追加変更が必要になった場合は理由を説明）— のうえで diff・テスト結果・verifier 結果・未決事項を提示し、commit せずに停止する
 
 ## 完了項目チェックリスト
 
 <!-- 完了した具体的な成果物・作業を追記していく。完了項目は実装完了を意味する。検証完了の判断はフェーズステータス [x] と検証履歴を根拠とする -->
 
-- [x] Phase A: stop-state-check.sh（全23行）を読了し、skip 機構の説明報告（3点・該当行引用付き）を提示。ユーザー確認・承認済み
-- [x] Phase B-1: CLAUDE.md §7 に4点を追記（/goal達成≠フェーズ承認、人間判断作業への不使用、ターン上限到達時の未達成報告、停止前の verifier 結果明記）
-- [x] Phase B-2: phase-goal.md 17行目を「完了済みフェーズは文面を生成せず、再実行の要否だけを報告して停止」に変更
-- [x] Phase B-3: README 動作確認5を状態別テスト A〜D（passed:false継続／passed:true+STATE.md未更新ブロック／更新済み正常停止／5ターン到達未達成報告）に置き換え
-- [x] Phase C-1: 公式ドキュメント確認（PreToolUse は tool_input.command / tool_input.file_path を stdin JSON で検査可、exit 2 でブロック・stderr が Claude にフィードバック、matcher "Write|Edit|Bash" 可。根拠: code.claude.com/docs/en/hooks-guide.md, hooks.md）→ .claude/hooks/guard-skip-file.sh 新規作成（+x）、settings.json に PreToolUse 追記（既存フック・permissions 無変更）
-- [x] Phase C-2: CLAUDE.md §5 に「skip ファイルの作成はエージェントの全ツール（Write/Edit/Bash）で PreToolUse フックによりブロックされる。ユーザーが自身のターミナルから作成する」を追記（全体153行）。§6 構成図に guard-skip-file.sh を整合追記
-- [x] Phase C-3: README の skip 説明を拡充（作成方法 touch・10分/1回失効・mtime リセット制約・PreToolUse ブロック）。「hooksに関する注意」冒頭と「ファイル構成と役割」表も整合更新
-- [x] Phase C-4: 敵対的テスト実施 — 実配線の Bash `touch .claude/skip-state-check` が PreToolUse フックにブロックされ（stderr メッセージ確認・ファイル未作成）、hooks のファイルウォッチャーによるセッション中反映も実証。補完の直接テスト G1〜G7 全PASS（Write/Edit/Bash経路ブロック、正常系通過、不正JSON は fail-open）
-- [x] 既知の制約の記録: ガードは保守的な文字列一致であり、スクリプトファイル経由の間接実行（コマンド文字列に対象文字列を含めない迂回）は検知できない。直接的なツール呼び出しに対する決定論的ガードであり、サンドボックスではない
-- [x] Phase A〜D の7ファイルを commit `c2d74cd`（push なし・ユーザー承認済み）
-- [x] 任意対応（ユーザー承認済み・軽微修正のため verifier 再検証なし）: README に ①fail-open 採用の判断根拠 ②ファイルウォッチャーによるセッション中自動反映の注記、を追記（commit 後のため未コミット）
+- [x] Phase 1: .gitignore 新規作成（change-log.txt / settings.local.json / skip承認ファイルの3エントリ）。git status --ignored で change-log.txt・settings.local.json の除外（!!）を確認、追跡13ファイルに変化なし
+- [x] Phase 2: LICENSE（MIT・Copyright (c) 2026 jacobiIdentity）新規作成
+- [x] Phase 3: README「運用中に自動生成されるファイル」直下に公開リポジトリでの注意（秘密情報・顧客名・社内URL・ローカル絶対パスを記録しない、commit 前の内容確認）を追記
+- [x] Phase 4 追加監査: ①author/committer 全履歴で単一（jacobiIdentity / yahoo アドレス）②追加パターン（sk- / gh*_ / AKIA / xox / PRIVATE KEY / /Users/）追跡ファイル・全履歴ともヒットなし（唯一のヒットは本 STATE.md の監査基準の記述自体＝誤検知）③タグ0・submodule なし・LFS なし・バイナリなし ④hooks 3スクリプトすべて 100755 ⑤スクリプト安全性レビュー実施（発見事項1件: log-change.sh はプロジェクト外 Write のみのセッションでも空の change-log.txt を生成し、その状態で Stop フックが誤ブロックする edge case。修正案 `[ -s ]` 化は別タスク候補）⑥Claude-Session URL は非認証 WebFetch で 403 Forbidden（内容非取得）。gitleaks は未インストールのため未実施
+- [x] 監査の限界の明記: パターン検索は既知形式のみ検出可能。未知形式・エンコード済み資格情報は対象外。URL アクセス確認は単一クライアントからの1回であり、ブラウザ実挙動・別アカウント・将来の仕様変更は未検証
+- [x] Phase 6: pending 5ファイルの diff 提示、check-ignore で3実パスが .gitignore の2・3・5行目に一致することを検証（skip承認ファイルのパスを含む Bash はガードにブロックされるため、検証はスクリプト間接実行で実施）
+- [x] Phase 7: stop-state-check.sh 18行目を `[ -f ]`→`[ -s ]` に最小修正（変更は1箇所のみ）。回帰テスト R1〜R4 × 通常/空白パスの8件全PASS（空ログ誤ブロック解消・skip機構非退行）
+- [x] Phase 8: success-log 配布不整合を分析（cp -r で利用者に配布される vs「コピー不要」説明の矛盾、追記のみ規約との衝突、skill-harvest 同種カウントへの影響）。Option A（docs/ へ退避＋初期化）/ Option B（README のコピー手順に削除1行追加）の差分案を提示。実行は承認待ち
+- [x] Phase 9: STATE.md の stale 記述なしを確認（旧「任意対応2点未コミット」は本タスク開始時の初期化で解消済み）・attribution 未適用記述を現在状態に更新。settings.local.json に attribution.sessionUrl: false を既存 permissions 4エントリ保持のまま追記、Git 管理対象外（ls-files 不一致・.gitignore 3行目）を確認
+- [x] Phase 10: git diff --check クリーン、hooks 3スクリプト sh -n OK、ガード回帰 G1〜G7 全PASS、秘密情報パターン再走査（追跡: STATE.md の基準自己言及1件のみ＝誤検知、全refs: 0行。メールドメインは履歴9行＝9コミットの Author 行と一致しファイル内容への混入なし）、gitleaks 未導入のため未実施（インストールせず）
+- [x] Phase 11: success-log.md.template をリポジトリルートに新設（実績0件の初期状態）。.claude/success-log.md の既存エントリ（実数4件。指示文の「5エントリ」は数え違いと判断し、無改変の意図を4件全件で充足）は削除・移動・改変なし
+- [x] Phase 12: README 適用手順を「新規導入（明示的コピー＋template から success-log 生成）」と「既存の .claude/ があるプロジェクトへの更新（手動マージ基本・settings.json / success-log.md / 独自 agents・commands・hooks・skills を上書きしない）」に分離。丸ごとコピー方式を廃止し、コピー対象外4件（change-log.txt / settings.local.json / skip承認ファイル / キット自身の success-log.md）を明記。「運用中に自動生成」説明を「適用先で生成・更新（キット本体からはコピーしない）」に修正、構成表に template 行を追加
+- [x] Phase 13: 配布テスト11項目全PASS（一時ディレクトリにダミーのローカル限定3ファイル＋開発実績入り success-log を持つコピー元を構築 → README 新規導入手順を空白含む適用先パスで実行 → 配布対象コピー・ローカル3ファイル非混入・適用先 success-log が template と同一かつ開発実績を含まないことを確認。実リポジトリのローカル限定ファイルは不使用）
+- [x] Phase 14: 採用方針の記録 — ①STATE.md は公開リポジトリに含め続ける ②success-log は Option C（配布用 template＋明示的コピー）採用（Option A/B は不採用）③作者メールは noreply へ変更方針・実アドレスはユーザー入力待ち（設定・推測しない）④既存コミットの Claude-Session URL は後続の一括履歴書き換えで削除予定（未実行。attribution.sessionUrl: false により今後の新規コミットには付かない）
+- [x] Phase 15: git diff --check クリーン、秘密情報パターン再走査（現行ファイル: STATE.md の基準自己言及のみ＝誤検知、全refs: 0行）、verifier passed: true（1回目）
 
 ## 検証履歴
 
@@ -65,7 +82,9 @@ verifier 検証・番号ごとの報告・commit は承認後（push しない�
 
 | 成果物 | verifier結果 | 試行回数 | 最終検証日時 |
 | --- | --- | --- | --- |
-| Phase B・C 成果物一式（CLAUDE.md / phase-goal.md / README.md / guard-skip-file.sh / settings.json） | passed: true（checked 10項目、improvements なし） | 1回目 | 2026-07-16 15:56 |
+| .gitignore / LICENSE / README追記（3成果物一括） | passed: true（checked 7項目、improvements なし） | 1回目 | 2026-07-16 22:06 |
+| stop-state-check.sh 修正 / settings.local.json / STATE.md 整合（Phase 7・9） | passed: true（checked 8項目、improvements なし） | 1回目 | 2026-07-16 23:05 |
+| success-log.md.template / README 適用手順 / success-log 既存エントリ保全（Phase 11〜12） | passed: true（improvements なし） | 1回目 | 2026-07-16 23:31 |
 
 ## 発生エラーと対処
 
@@ -77,6 +96,6 @@ verifier 検証・番号ごとの報告・commit は承認後（push しない�
 
 ## 次に再開すべき地点
 
-- 再開フェーズ: なし（Phase A〜D 完了・commit `c2d74cd` 済み）
-- 最初にやること: 任意対応2点（README の fail-open 根拠・ウォッチャー注記）と本 STATE.md 更新が未コミットで残っている。次回 commit 承認時にまとめて含める（push はユーザー指示があるまでしない）
-- 前提・注意事項: PreToolUse ガードは本セッションで既に有効（ファイルウォッチャーで反映済み・敵対的テストでブロック確認済み）。以後、エージェントの Bash コマンド文字列や Write/Edit の file_path に skip-state-check を含む操作はすべてブロックされる（本 STATE.md 等の通常編集には影響しない）。セッションID `2026-07-16-01`、最終更新 2026-07-16 15:56
+- 再開フェーズ: なし（Phase 1〜15 完了。commit のみユーザー承認待ち）
+- 最初にやること: commit 予定7ファイル（.gitignore / LICENSE / README.md / STATE.md / success-log.md.template / .claude/success-log.md / .claude/hooks/stop-state-check.sh）の承認を得て commit する（push は指示があるまでしない）。その後の残作業: ①作者メールの noreply 実アドレスのユーザー入力を受けて git config 変更 ②既存コミットの Claude-Session URL とメールの一括履歴書き換え（ユーザー指示時のみ）
+- 前提・注意事項: 採用方針 — STATE.md 公開継続 / success-log は Option C / メールは noreply 実値待ち / Session URL は後続の一括履歴書き換えで削除予定。attribution.sessionUrl: false は settings.local.json（Git管理対象外）に適用済み。空ログ誤ブロックは `[ -s ]` 化で修正済み。gitleaks 未インストール（勝手にインストールしない方針）

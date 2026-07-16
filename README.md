@@ -14,6 +14,7 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 | --- | --- |
 | `CLAUDE.md` | ワークフロー規約本体。STATE.md運用・検証フロー・コスト抑制・スキル化のルール |
 | `STATE.md.template` | チェックポイントのテンプレート（フェーズ／受け入れ基準／検証履歴／再開地点） |
+| `success-log.md.template` | 成功実績ログのテンプレート（実績0件の初期状態。適用先の `.claude/success-log.md` はここから生成） |
 | `.claude/settings.json` | hooks（PreToolUse: skipガード、Stop: STATE.md更新チェック、PostToolUse: 変更ログ追記）と permissions（git commit/push は要承認） |
 | `.claude/hooks/guard-skip-file.sh` | PreToolUseフック本体（skip-state-check へのエージェントによる作成・変更をブロック） |
 | `.claude/hooks/stop-state-check.sh` | Stopフック本体（STATE.md更新チェック・skip機構・10分失効） |
@@ -23,26 +24,48 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 | `.claude/agents/verifier.md` | 検証担当サブエージェント（`model: haiku`、Read/Grep/Globのみ、`maxTurns: 20`） |
 | `.claude/skills/skill-harvest/SKILL.md` | 成功パターンを再利用可能なスキルへ抽象化する手順 |
 
-運用中に自動生成されるファイル（コピー不要）:
+運用中に適用先プロジェクトで生成・更新されるファイル（キット本体からはコピーしない。適用手順参照）:
 
-- `.claude/change-log.txt` — PostToolUseフックが Edit/Write の対象ファイルを追記
-- `.claude/success-log.md` — verifier 通過ごとにメインエージェントが1エントリ（成果要約・手順要約・主要成果物）を追記
-- `STATE.md` — テンプレートから初期化
+- `.claude/change-log.txt` — PostToolUseフックが Edit/Write の対象ファイルを自動追記
+- `.claude/success-log.md` — `success-log.md.template` から生成し、verifier 通過ごとにメインエージェントが1エントリ（成果要約・手順要約・主要成果物）を追記
+- `STATE.md` — `STATE.md.template` から初期化
+
+> **公開リポジトリでの注意**: `success-log.md` と `STATE.md` は運用中にタスク内容が書き込まれます。秘密情報・顧客名・社内URL・ローカル絶対パス・非公開プロジェクト情報を記録しないでください。リポジトリを公開している場合は、これらのファイルを commit する前に必ず内容を確認してください。
 
 ## 前提条件
 
 - Claude Code（現行版）
 - `jq` — PostToolUseフックのログ追記に使用（macOS: `brew install jq` / Ubuntu: `sudo apt install jq`）
 
-## 既存プロジェクトへの適用手順
+## プロジェクトへの適用手順
 
-1. **`.claude/` をコピー**
+1. **配布対象を明示的にコピー**（`.claude/` の丸ごとコピーは行わないでください）
+
+   **新規導入（適用先に `.claude/` がない場合）:**
 
    ```bash
-   cp -r claude-workflow-kit/.claude /path/to/your-project/
+   KIT=claude-workflow-kit
+   DEST=/path/to/your-project
+   mkdir -p "$DEST/.claude"
+   cp -r "$KIT/.claude/agents" "$KIT/.claude/commands" "$KIT/.claude/hooks" "$KIT/.claude/skills" "$DEST/.claude/"
+   cp "$KIT/.claude/settings.json" "$DEST/.claude/"
+   cp "$KIT/success-log.md.template" "$DEST/.claude/success-log.md"
    ```
 
-   既にプロジェクトに `.claude/settings.json` がある場合は、上書きせず `hooks` と `permissions` の内容を手動でマージしてください。
+   **コピー対象外**（キットのローカル運用ファイル。適用先に持ち込まない）:
+
+   - `.claude/change-log.txt` — キット側のローカル変更ログ（適用先ではフックが自動生成）
+   - `.claude/settings.local.json` — ローカル個人設定
+   - `.claude/skip-state-check` — 一時承認ファイル
+   - キット自身の `.claude/success-log.md` — キットの開発実績であり、適用先の実績ではない（適用先の success-log.md は上記のとおり `success-log.md.template` から生成する）
+
+   **既存の `.claude/` があるプロジェクトへの更新:**
+
+   丸ごとコピーではなく**手動マージを基本**とし、次を上書きしないでください。
+
+   - 既存の `.claude/settings.json` — `hooks` と `permissions` の内容を手動でマージ
+   - 既存の `.claude/success-log.md` — 適用先プロジェクト自身の実績ログをそのまま維持
+   - 独自の `agents/` `commands/` `hooks/` `skills/` — 同名ファイルの衝突を確認してから必要なものだけコピー
 
 2. **`CLAUDE.md` をコピー**
 

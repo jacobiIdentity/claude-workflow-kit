@@ -1,0 +1,5 @@
+# 運用中に自動生成・ローカル限定のファイル（公開・共有しない）
+.claude/change-log.txt
+.claude/settings.local.json
+# skip承認ファイル（一時ファイル。ユーザーがターミナルで作成し、使用時に自動削除される）
+.claude/skip-state-check

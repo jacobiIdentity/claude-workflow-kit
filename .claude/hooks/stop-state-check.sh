@@ -15,7 +15,7 @@ if [ -f "$SKIP" ]; then
   echo "skip-state-check は期限切れ（10分超過）のため無効。通常チェックを実行します。" >&2
 fi
 LOG="$CLAUDE_PROJECT_DIR/.claude/change-log.txt"
-[ -f "$LOG" ] || exit 0
+[ -s "$LOG" ] || exit 0
 LAST=$(tail -n 1 "$LOG")
 case "$LAST" in
   *" $CLAUDE_PROJECT_DIR/STATE.md") exit 0 ;;
