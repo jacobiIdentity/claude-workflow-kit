@@ -56,6 +56,8 @@ verifier 検証・番号ごとの報告・commit は承認後（push しない�
 - [x] Phase C-3: README の skip 説明を拡充（作成方法 touch・10分/1回失効・mtime リセット制約・PreToolUse ブロック）。「hooksに関する注意」冒頭と「ファイル構成と役割」表も整合更新
 - [x] Phase C-4: 敵対的テスト実施 — 実配線の Bash `touch .claude/skip-state-check` が PreToolUse フックにブロックされ（stderr メッセージ確認・ファイル未作成）、hooks のファイルウォッチャーによるセッション中反映も実証。補完の直接テスト G1〜G7 全PASS（Write/Edit/Bash経路ブロック、正常系通過、不正JSON は fail-open）
 - [x] 既知の制約の記録: ガードは保守的な文字列一致であり、スクリプトファイル経由の間接実行（コマンド文字列に対象文字列を含めない迂回）は検知できない。直接的なツール呼び出しに対する決定論的ガードであり、サンドボックスではない
+- [x] Phase A〜D の7ファイルを commit `c2d74cd`（push なし・ユーザー承認済み）
+- [x] 任意対応（ユーザー承認済み・軽微修正のため verifier 再検証なし）: README に ①fail-open 採用の判断根拠 ②ファイルウォッチャーによるセッション中自動反映の注記、を追記（commit 後のため未コミット）
 
 ## 検証履歴
 
@@ -75,6 +77,6 @@ verifier 検証・番号ごとの報告・commit は承認後（push しない�
 
 ## 次に再開すべき地点
 
-- 再開フェーズ: なし（Phase A〜D 完了。commit のみユーザー承認待ち）
-- 最初にやること: ユーザーの commit 承認を得て、変更6ファイル（CLAUDE.md / README.md / STATE.md / .claude/commands/phase-goal.md / .claude/hooks/guard-skip-file.sh / .claude/settings.json / .claude/success-log.md の7ファイル）を commit する（push はしない）
+- 再開フェーズ: なし（Phase A〜D 完了・commit `c2d74cd` 済み）
+- 最初にやること: 任意対応2点（README の fail-open 根拠・ウォッチャー注記）と本 STATE.md 更新が未コミットで残っている。次回 commit 承認時にまとめて含める（push はユーザー指示があるまでしない）
 - 前提・注意事項: PreToolUse ガードは本セッションで既に有効（ファイルウォッチャーで反映済み・敵対的テストでブロック確認済み）。以後、エージェントの Bash コマンド文字列や Write/Edit の file_path に skip-state-check を含む操作はすべてブロックされる（本 STATE.md 等の通常編集には影響しない）。セッションID `2026-07-16-01`、最終更新 2026-07-16 15:56

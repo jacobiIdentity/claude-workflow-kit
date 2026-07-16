@@ -119,12 +119,13 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 
 - 本キットが使うのは `command` タイプのフックのみです（PreToolUse / Stop / PostToolUse）。フックの実体は `.claude/hooks/` 配下のスクリプト（`guard-skip-file.sh` / `stop-state-check.sh` / `log-change.sh`）で、settings.json はそれを呼び出すだけです
 - `agent` タイプのフックは**実験的機能**のため採用していません。本番用途では command / prompt フックを優先してください
-- **hooks はセッション開始時に読み込まれます。** 導入・変更した直後のセッションでは発火しないため、必ず Claude Code を再起動してから動作確認してください
+- **hooks はセッション開始時に読み込まれます。** 導入・変更した直後のセッションでは発火しないため、必ず Claude Code を再起動してから動作確認してください。なお、環境によりファイルウォッチャーで settings.json の変更がセッション中に自動反映される場合があります（本キット開発時に実挙動を確認済み）。確実を期すなら再起動してください
 - Stopフックの判定ロジック（`stop-state-check.sh`）: `.claude/change-log.txt` の**最終エントリが `<プロジェクトルート>/STATE.md` であれば通過**、それ以外は exit 2 で停止をブロックします（change-log.txt が未生成の初回セッションは通過）。STATE.md の更新は Edit/Write ツールで行う前提です（シェル経由の追記は change-log に残らないためブロックされます）
 - **skip機構**（`stop-state-check.sh`）: ユーザーが明示的に承認した場合に限り、`.claude/skip-state-check` ファイルを作成すると Stopフックのチェックを1回だけ免除できます
   - **作成方法**: ユーザーが**自身のターミナル**でプロジェクトルートから `touch .claude/skip-state-check` を実行します。エージェントによる作成・変更は Write / Edit / Bash の全ツールで PreToolUse フック（`guard-skip-file.sh`）が決定論的にブロックします（CLAUDE.md §5 の例外規定を参照）
   - **失効条件**: skipファイルは使用時に自動削除され（1回限り）、作成から10分を超えると失効します
   - **制約**: 失効判定はファイルの mtime 基準のため、ファイルを再度 `touch` すると10分の時計はリセットされます（作成時刻の厳密な記録ではありません）
+  - **fail-open 採用の判断根拠**: ガードスクリプトは jq 失敗・入力不正時に exit 0（通過）します。fail-closed にすると Write / Edit / Bash の全ツールが停止するリスクがあり、守備対象（skipファイル1つの不正作成防止）に対して過剰なためです
 - **変更ログの記録範囲**（`log-change.sh`）: プロジェクトルート配下（ディレクトリ境界込み）の Edit/Write のみを記録します。プロジェクト外のファイル（グローバル設定・メモリファイル等）への書き込みは記録されず、Stopフックの誤発火要因になりません。file_path が欠損・空のイベントも記録しません
 - **保証範囲**: Stopフックが保証するのは「追跡対象（Edit/Write）の最後の変更先が STATE.md であること」のみで、STATE.md の記載内容の完全性までは検証しません。Bash 経由のファイル変更、および同一リポジトリを複数セッションで並行編集するケースは追跡対象外です
 - **このリポジトリ自体を Claude Code で編集する場合**も、本キットの hooks と CLAUDE.md がそのまま有効になります。その場合は先に `STATE.md.template` から `STATE.md` を作成してから作業してください
