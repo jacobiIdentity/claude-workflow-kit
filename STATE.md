@@ -10,16 +10,24 @@
 
 ## セッション情報
 
-- セッションID: `2026-07-16-02`
-- 開始日時: `2026-07-16 16:30`
-- 最終更新: `2026-07-16 23:31`
+- セッションID: `2026-07-19-01`
+- 開始日時: `2026-07-19 01:36`
+- 最終更新: `2026-07-19 01:45`
 
 ## 目標
 
-リポジトリ公開前対応（外部レビュー指摘の反映）: .gitignore / LICENSE / README注意書きの追加、
-追加監査（メタデータ・追加秘密情報パターン・実行権限・スクリプト安全性・Claude-Session URL アクセス確認）、
-公開対象の最終確認。作者メール公開可否と既存コミットの Claude-Session URL 削除（履歴書き換え）はユーザー判断事項として提示するに留める。
-commit は承認後のみ・push は指示があるまでしない。
+公開前対応・履歴整理・cleanroom 分離・公開検証が完了した状態を STATE.md へ同期し、公開作業を正式に完了する。
+
+## 現在の状態
+
+- 正式版リポジトリ（jacobiIdentity/claude-workflow-kit）は public 化済み
+- 公開履歴はクリーンな履歴のみ（cleanroom 方式で再構成した10コミット）
+- 全コミットの Author/Committer email は noreply
+- Claude-Session トレーラは 0件
+- 旧SHAは正式版から取得不可（認証あり・匿名の両方で確認済み）
+- 既知秘密情報パターン監査・匿名アクセス確認・LICENSE（MIT）確認を通過
+- 旧履歴を含む復旧資材は公開対象外として非公開保持
+- 公開作業の未解決事項なし
 
 ## フェーズ一覧
 
@@ -55,6 +63,8 @@ commit は承認後のみ・push は指示があるまでしない。
   - 受け入れ基準: ①STATE.md は公開リポジトリに含め続ける ②success-log は Option C（template＋明示的コピー）採用 ③作者メールは noreply へ変更方針だが実値のユーザー入力待ち（設定・推測しない）④既存 Claude-Session URL は後続の一括履歴書き換えで削除予定（まだ実行しない）⑤配布コピー試験の結果 — を STATE.md に記録する
 - [x] Phase 15: 最終検証と停止 ※commit せずに停止（承認待ち）
   - 受け入れ基準: ①`git diff --check` ②README 手順の実行テスト（Phase 13）③既知秘密情報パターンの再走査 ④verifier 検証 passed: true ⑤commit 予定ファイル一覧（現在の6ファイル＋success-log.md.template の7ファイル基本。追加変更が必要になった場合は理由を説明）— のうえで diff・テスト結果・verifier 結果・未決事項を提示し、commit せずに停止する
+- [x] Phase 16: 公開完了状態の同期
+  - 受け入れ基準: ①正式版が public 化済みであることを現在状態として記録する ②公開履歴が noreply 化済みで、Claude-Session トレーラが存在しないことを記録する ③旧履歴が公開対象から分離され、旧SHAが正式版から取得できないことを記録する ④過去 Phase の受け入れ基準・完了記録は改変しない ⑤「次に再開すべき地点」から、commit 待ち・メール入力待ち・履歴書き換え予定という解消済み事項を除く ⑥success-log へ、秘密情報を含まない成功実績を1件だけ末尾追記する ⑦verifier passed: true・差分検査・秘密情報監査を通す ⑧STATE.md と success-log 以外を変更しない
 
 ## 完了項目チェックリスト
 
@@ -75,6 +85,11 @@ commit は承認後のみ・push は指示があるまでしない。
 - [x] Phase 13: 配布テスト11項目全PASS（一時ディレクトリにダミーのローカル限定3ファイル＋開発実績入り success-log を持つコピー元を構築 → README 新規導入手順を空白含む適用先パスで実行 → 配布対象コピー・ローカル3ファイル非混入・適用先 success-log が template と同一かつ開発実績を含まないことを確認。実リポジトリのローカル限定ファイルは不使用）
 - [x] Phase 14: 採用方針の記録 — ①STATE.md は公開リポジトリに含め続ける ②success-log は Option C（配布用 template＋明示的コピー）採用（Option A/B は不採用）③作者メールは noreply へ変更方針・実アドレスはユーザー入力待ち（設定・推測しない）④既存コミットの Claude-Session URL は後続の一括履歴書き換えで削除予定（未実行。attribution.sessionUrl: false により今後の新規コミットには付かない）
 - [x] Phase 15: git diff --check クリーン、秘密情報パターン再走査（現行ファイル: STATE.md の基準自己言及のみ＝誤検知、全refs: 0行）、verifier passed: true（1回目）
+- [x] Phase 16: noreply 設定と過去履歴の Author/Committer メール置換完了
+- [x] Phase 16: Claude-Session トレーラ削除完了（公開履歴で0件）
+- [x] Phase 16: cleanroom 方式による旧履歴の分離完了（旧SHAは正式版から取得不可）
+- [x] Phase 16: 正式版リポジトリの public 化完了（匿名アクセス・旧SHA取得不可・秘密情報既知パターン監査を確認）
+- [x] Phase 16: 旧履歴を保持する検査用リポジトリと復旧資材は非公開のまま維持
 
 ## 検証履歴
 
@@ -85,6 +100,7 @@ commit は承認後のみ・push は指示があるまでしない。
 | .gitignore / LICENSE / README追記（3成果物一括） | passed: true（checked 7項目、improvements なし） | 1回目 | 2026-07-16 22:06 |
 | stop-state-check.sh 修正 / settings.local.json / STATE.md 整合（Phase 7・9） | passed: true（checked 8項目、improvements なし） | 1回目 | 2026-07-16 23:05 |
 | success-log.md.template / README 適用手順 / success-log 既存エントリ保全（Phase 11〜12） | passed: true（improvements なし） | 1回目 | 2026-07-16 23:31 |
+| STATE.md 公開完了状態の同期（Phase 16） | passed: true（checked 6項目、improvements なし） | 1回目 | 2026-07-19 01:36 |
 
 ## 発生エラーと対処
 
@@ -96,6 +112,6 @@ commit は承認後のみ・push は指示があるまでしない。
 
 ## 次に再開すべき地点
 
-- 再開フェーズ: なし（Phase 1〜15 完了。commit のみユーザー承認待ち）
-- 最初にやること: commit 予定7ファイル（.gitignore / LICENSE / README.md / STATE.md / success-log.md.template / .claude/success-log.md / .claude/hooks/stop-state-check.sh）の承認を得て commit する（push は指示があるまでしない）。その後の残作業: ①作者メールの noreply 実アドレスのユーザー入力を受けて git config 変更 ②既存コミットの Claude-Session URL とメールの一括履歴書き換え（ユーザー指示時のみ）
-- 前提・注意事項: 採用方針 — STATE.md 公開継続 / success-log は Option C / メールは noreply 実値待ち / Session URL は後続の一括履歴書き換えで削除予定。attribution.sessionUrl: false は settings.local.json（Git管理対象外）に適用済み。空ログ誤ブロックは `[ -s ]` 化で修正済み。gitleaks 未インストール（勝手にインストールしない方針）
+- 再開フェーズ: なし（公開作業は完了）
+- 最初にやること: なし。次回は通常の機能追加・不具合修正・README改善等の新タスクとして開始する
+- 前提・注意事項: 公開前対応・メール変更・履歴書き換え・public 化に関する保留事項はない。旧履歴を保持する検査用リポジトリと復旧資材は公開しない

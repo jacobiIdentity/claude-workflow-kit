@@ -19,3 +19,7 @@
 - [2026-07-16 23:31] 配布時ローカルファイル混入防止（Option C）: success-log.md.template 新設＋README導入手順の明示的コピー化
   - 手順要約: STATE.mdにPhase 11〜15の基準を事前記入 → template新設（実績0件）→ README「新規導入／既存更新」分離・丸ごとコピー廃止・コピー対象外4件明記 → 一時ディレクトリで配布テスト11項目全PASS（ダミーのローカル限定3ファイル非混入・空白パス・template同一性）→ verifier検証 passed: true（1回目）
   - 主要成果物: success-log.md.template（新規）、README.md（適用手順・自動生成説明・構成表）
+
+- [2026-07-19 01:36] リポジトリ公開完了: 公開前監査 → noreply化・Claude-Sessionトレーラ除去 → cleanroom方式による旧履歴分離 → public化 → 公開後検証
+  - 手順要約: 公開前監査（秘密情報既知パターン・メタデータ・LICENSE/.gitignore整備）→ 履歴のnoreply化とClaude-Sessionトレーラ除去 → cleanroom方式でクリーン履歴のみを公開対象に分離 → 正式版をpublic化 → 匿名アクセス可・旧SHA取得不可・秘密情報監査の全検証PASS → verifier検証 passed: true（1回目）
+  - 主要成果物: 公開リポジトリ（クリーン履歴のみ）、STATE.md（公開完了状態の同期）
