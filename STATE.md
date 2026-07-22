@@ -12,7 +12,7 @@
 
 - セッションID: `2026-07-19-02`
 - 開始日時: `2026-07-19 09:45`
-- 最終更新: `2026-07-19 19:35`
+- 最終更新: `2026-07-22 07:45`
 
 ## 目標
 
@@ -23,13 +23,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: Phase 7
-- risk_floor: L2
-- risk_final: L2
+- phase: STATE-sync
+- risk_floor: L0
+- risk_final: L0
 - verifier_passed: true
-- reviewer_verdict: approve_with_changes
-- unresolved_issues: 3件（レビュー内での hash 再計算不可・テスト結果は入力依拠・macOS 実機と Web ask UI 未検証）
-- next_resume: commit 承認待ち → private staging feat/review-governance-gate-v1 へ push
+- reviewer_verdict: none
+- unresolved_issues: none
+- next_resume: private staging feat/review-governance-gate-v1 からのコールドスタート検証
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル
@@ -104,7 +104,7 @@
   - 受け入れ基準: 依頼文記載の15項目（①保護対象パス変更が L2 以上 ②閾値超過が L2 ③risk_final<risk_floor 拒否 ④Verifier false 拒否 ⑤Reviewer reject 拒否 ⑥critical finding 残存拒否 ⑦review-gate なし拒否 ⑧staged diff 変更後の古い証跡拒否 ⑨L3 は external_review.completed の値に関わらず常に拒否（2026-07-19 改訂: 旧「外部レビュー未完了なら拒否」を厳格化）⑩STATE.md の approved: true だけでは通らない ⑪git commit -a / --amend 拒否 ⑫全条件成立時も自動 allow でなくユーザー確認 ⑬commit 以外の通常操作を妨げない ⑭hook・新規ファイル除去で既存 kit へ戻る ⑮macOS / Ubuntu 互換）をすべて確認し結果を記録する。実 commit を伴うテストは一時リポジトリのみで行う
 - [x] Phase 6: 独立レビュー
   - 受け入れ基準: 今回新設した reviewer 自身ではない別コンテキストの subagent またはコードレビュー機能で、要件一致・hook 回避経路・fail-open 箇所・誤ブロック・staged diff hash の安定性・shell quoting・JSON 処理・macOS/Linux 互換・README 保証表現・過剰設計・ロールバックを批判的に確認する。重大指摘は最大2巡で修正・再レビューし、2巡で解消しなければ人間へ報告して停止する
-- [ ] Phase 7: 承認待ち停止 → commit → private staging へ push
+- [x] Phase 7: 承認待ち停止 → commit → private staging へ push（2026-07-22 完了: /review-pack READY・証跡生成 → ユーザー承認により commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498（親=公開版 main 2752e4a・12ファイル・単一行メッセージ）→ ユーザー承認により staging（jacobiidentity/claude-workflow-kit-staging-private・private 確認済み）の feat/review-governance-gate-v1 へ push（--set-upstream・単一 ref・force なし）。local=remote SHA 一致・staging/main（bb248e6）不変・origin/main（2752e4a）不変・origin に同名 branch 未作成を確認。PR・merge・tag・追加 commit なし）
   - 受け入れ基準: 変更ファイル一覧・diff 概要・STATE.md 更新内容・受け入れ基準ごとの結果・実行/未実施テスト・Verifier 結果・独立レビュー結果（critical findings 原文）・残存リスク・未解決事項・ロールバック方法・公開版 remote 未送信の確認・commit 予定メッセージ・push 予定先（private staging remote / feat/review-governance-gate-v1）を提示して commit せず停止する。ユーザーの明示承認後にのみ commit し、private staging の同名ブランチへ push して SHA を報告する。承認後も main 更新・公開版 push・PR・merge・force push・tag・設定変更は行わない
 
 ## 検証方法
@@ -160,8 +160,8 @@
 
 ## 次に再開すべき地点
 
-- 再開フェーズ: **全体状態 = 自動検証完了・ユーザー手動確認待ち**（Phase 2〜6 完了・Phase 7 = 承認待ち停止 → 承認後の commit → private staging へ push のみ未実施）
-- 最初にやること（再開順序・この順で実施）: 1. ユーザーが `/review-pack` を手動実行 → 2. staged 差分なしにより BLOCKED となることを確認 → 3. review-gate が生成されないことを確認 → 4. 実装ファイルと staged 状態に意図しない変更がないことを確認 → 5. fixture（ローカル bare）への通常 push で hook の ask 表示を確認 → 6. 手動確認結果を整理 → 7. 最終12ファイルの stage 準備（`git status --short`・12ファイル以外の有無・実行予定の `git add -- <12 paths>` を提示して stage 承認待ち）。その後 /review-pack 最終実行 → READY なら18項目の commit 承認パケット提示 → ユーザー明示承認後にのみ commit → private staging（jacobiIdentity/claude-workflow-kit-staging-private）の同名ブランチへのみ push して SHA 報告
+- 再開フェーズ: **全フェーズ完了（Phase 1〜7）**。次はユーザーによる**コールドスタート検証**（新セッションでの導入後実挙動確認）へ進むかの判断待ち。残存項目: **macOS 実機での動作確認**・対話環境での ask UI 表示・/hooks / /permissions の目視・reviewer maxTurns 実効（ask UI 以降はローカル CLI / Remote Control 環境で）。成果の所在: commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498 = staging/feat/review-governance-gate-v1（private・ローカル HEAD と SHA 一致確認済み）。公開版 origin は 2752e4a のまま不変。公開する場合は「staging で確認した同一 commit を公開版 feature branch へ push → 公開版 main への PR」という別タスク（本セッションでは実施しない）
+- 最初にやること: private staging の feat/review-governance-gate-v1（9757fd7）からの**コールドスタート検証**を実施するかの判断を受領する（新セッションで branch を取得し、フック発火・/review-pack・reviewer 2体の実挙動を確認する工程。ask UI・maxTurns はローカル CLI / Remote Control で）
 - 前提・注意事項: **ユーザー手動確認5項目の状況（推測で完了扱いにしない）**=
   ①/hooks の目視確認 → **Web 環境の機能制約により確認不能**（2026-07-19 実施。「/hooks isn't available in this environment」表示。失敗ではない）。代替証跡: (a) settings.json の jq 抽出で PreToolUse 2エントリ＝entry1: matcher "Write|Edit|Bash"・handler 1件・guard-skip-file.sh（既存保持）／entry2: matcher "Bash"・**handler 1件（単一）**・command "sh"・args ["${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"]・**has_if: false**、Stop/PostToolUse も既存どおり (b) commit-review-gate の実動作ログ＝本セッションで git commit-tree / force push 系15形式が hook の deny メッセージでブロックされ、git status・非 Git Bash が素通し（scratchpad/phase4b-live-log.txt ほか）＝project 設定から実際に読み込まれ単一 Bash handler として動作している実測
   ②/permissions の目視確認 → **Claude Code Web 環境では利用不可（2026-07-19 実施。「isn't available in this environment」表示。UI 確認不能であり実装失敗ではない）**。代替証跡: settings.json の jq 検証＝ask 2件（git commit / git push）・deny 14件・`--force-with-lease` 独立ルール存在・gh の deny は `gh repo edit --visibility` 正規形限定（全 repo edit ではない）
