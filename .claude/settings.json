@@ -3,6 +3,22 @@
     "ask": [
       "Bash(git commit:*)",
       "Bash(git push:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --mirror:*)",
+      "Bash(git push --delete:*)",
+      "Bash(git push -d:*)",
+      "Bash(git push --prune:*)",
+      "Bash(git filter-repo:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git rebase --root:*)",
+      "Bash(git update-ref:*)",
+      "Bash(git commit-tree:*)",
+      "Bash(git reflog expire:*)",
+      "Bash(gh repo edit --visibility:*)"
     ]
   },
   "hooks": {
@@ -13,6 +29,18 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-skip-file.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"
+            ]
           }
         ]
       }

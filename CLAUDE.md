@@ -118,20 +118,27 @@ verifier:  passed: true  → メイン: 完了宣言・STATE.md 更新
 ```
 .claude/
 ├── settings.json              # PreToolUse（skipガード）/ Stop（STATE.md更新チェック）/ PostToolUse（変更ログ）
+├── risk-rules.json            # リスクルールの追加設定（スクリプト組み込みの最低ルールへの追加のみ）
 ├── success-log.md             # 成功実績の永続ログ（スキル化判断の根拠。追記のみ）
 ├── change-log.txt             # 変更ファイルログ（PostToolUseフックが自動追記）
 ├── hooks/
 │   ├── guard-skip-file.sh     # PreToolUseフック本体（skip-state-checkへのエージェント書き込みをブロック）
 │   ├── stop-state-check.sh    # Stopフック本体（STATE.md更新チェック・skip機構・10分失効）
-│   └── log-change.sh          # PostToolUseフック本体（プロジェクト配下のEdit/Writeのみ記録）
+│   ├── log-change.sh          # PostToolUseフック本体（プロジェクト配下のEdit/Writeのみ記録）
+│   ├── classify-risk.sh       # リスク下限＋staged diffハッシュ算出（フック未登録。review-packとゲートが呼ぶ）
+│   └── commit-review-gate.sh  # PreToolUseフック本体（commit・L3操作のゲート。deny / ask）
 ├── commands/
 │   └── phase-goal.md          # /goal 文面組み立てコマンド（STATE.mdの受け入れ基準から生成）
 ├── agents/
 │   ├── executor.md            # 実装担当
-│   └── verifier.md            # 検証担当（読み取り専用）
+│   ├── verifier.md            # 検証担当（読み取り専用）
+│   ├── reviewer-lite.md       # L1向け軽量Critical Reviewer（読み取り専用）
+│   └── reviewer-full.md       # L2向け完全Critical Reviewer（読み取り専用）
 └── skills/
-    └── skill-harvest/SKILL.md # 成功パターンのスキル化手順
+    ├── skill-harvest/SKILL.md # 成功パターンのスキル化手順
+    └── review-pack/SKILL.md   # 二段階レビュー・証跡・承認パケット生成（/review-packで手動起動）
 STATE.md                       # チェックポイント（STATE.md.templateから初期化。タスク単位でリセット可）
+tests/run-gate-tests.sh        # リスク判定・commitゲートのfixtureテスト
 ```
 
 これらのファイルの役割・構成を変更する場合は、必ずユーザーの明示的な指示を得ること。
@@ -150,3 +157,12 @@ STATE.md                       # チェックポイント（STATE.md.templateか
 - 要件決定・設計判断・スコープ変更など人間の判断が必要な作業には /goal を使用しない。/goal はフェーズ内の実装・修正・検証の反復にのみ用いる。
 - ターン上限到達時は未達成として停止し、原因・実施内容・検証結果・未解決事項を報告する。
 - 停止を試みる前に、直近の verifier 結果（passed 値と根拠の要点）を応答に明記する。
+
+---
+
+## 8. レビュー統制（最小参照ルール）
+
+- リスク下限は `classify-risk.sh` が staged diff から機械算出する。エージェントは下限より下げられない。Reviewer は最終リスクレベルに連動する: L0=なし / L1=reviewer-lite / L2=reviewer-full / L3=常にエスカレーション（Phase 1 では commit 不可）
+- commit には review-gate 証跡が必要。証跡は、利用者が対象パスを**明示的に git add した後**に `/review-pack` を手動起動して生成する（Claude による自動起動は不可）。review-pack 運用で `git add .` / `git add -A` は使用しない
+- 全条件成立でも commit は自動許可されず、権限確認（ask）で人間が判断する
+- 詳細仕様は README・`.claude/skills/review-pack/SKILL.md`・各スクリプトを参照する（本ファイルへ詳細を重複記載しない）
