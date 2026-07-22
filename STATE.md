@@ -12,7 +12,7 @@
 
 - セッションID: `2026-07-19-02`
 - 開始日時: `2026-07-19 09:45`
-- 最終更新: `2026-07-22 07:45`
+- 最終更新: `2026-07-22 12:45`
 
 ## 目標
 
@@ -23,13 +23,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: STATE-sync
-- risk_floor: L0
-- risk_final: L0
+- phase: STATE-sync-coldstart
+- risk_floor: L1
+- risk_final: L1
 - verifier_passed: true
-- reviewer_verdict: none
-- unresolved_issues: none
-- next_resume: private staging feat/review-governance-gate-v1 からのコールドスタート検証
+- reviewer_verdict: approve_with_changes
+- unresolved_issues: low 5件（素通し4形式未実測・Web ハーネス branch 名・reviewer-full rollback 出力形式・maxTurns 上限到達挙動未観測・ask UI / macOS 未確認。「コールドスタート検証結果」セクション参照）
+- next_resume: 本 STATE-sync commit の /review-pack → 承認後 commit → staging へ push。その後、公開版リポジトリの同名 feature branch へ検証済み commit 列を push するかの承認待ち
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル
@@ -146,6 +146,7 @@
 | Phase 5 残2項目（ロールバック fixture 検証 / macOS 未検証明示） | passed: true（受け入れ10基準すべて充足、improvements・critical_errors なし） | 1回目 | 2026-07-19 17:40 |
 | Phase 6 独立レビュー（fresh context general-purpose・Phase 2〜5 全体・チェックリスト11項目） | passed: true（11項目すべて独立確認 OK・テスト165/165 とロールバック21/21 をレビュアー自身が再実行・critical/high 0件・low 5件＋info 2件=いずれも文書化済み設計トレードオフか緩和済み） | 1回目 | 2026-07-19 18:10 |
 | ask 保証表現の修正（README / STATE.md。実装無変更） | passed: true（4観点 10/10。6項目明記・無条件表現なし・実装整合・165テスト回帰なし） | 1回目 | 2026-07-19 19:45 |
+| STATE-sync-coldstart: STATE.md（コールドスタート検証結果の同期。/review-pack 初回検証） | passed: true（3観点 10/10、improvements・critical_errors なし） | 1回目 | 2026-07-22 12:53 |
 
 ## 発生エラーと対処
 
@@ -158,15 +159,53 @@
 | Phase 4B 実機検証で `/usr/bin/git push --force` が素通り実行（fixture のローカル bare 宛のため実害なし）。if: Bash(git *) がパス前置でフックを起動させず、permissions.deny/ask も cd 複合形に不一致 | Phase 4B | ユーザー承認のもと ①settings.json を matcher Bash 単一ハンドラ（if なし・exec form）へ変更 ②通常 push を hook 自身が ask にする修正（commit-review-gate.sh へ PUSH_RE 追加。Phase 2 コアのユーザー承認済み変更）③README へ permissions 対象範囲・jq 欠損時の全 Bash 停止・if 登録の注意を明記。再実測で /usr/bin/git 前置・env 前置の force push が deny、通常 push が hook ask（スクリプトレベル実証）を確認。テスト 165 PASS | 解決 |
 | ユーザー独立確認で Phase 2 に重大欠陥（L3 同等表現 `git -C .. push --force`・`+main:main`・`--mirror`・`--delete` 等の素通り、rules 欠損時の fail-open、L3 自己申告通過、FR-09 未実装、証跡保存先の Stop フック循環、保護パス不足） | Phase 2 | 差し戻しを受けて基準を改訂（改訂記録参照）し、gate 再構成・rules 拡張・テスト111件で修正を検証 | 解決（再評価待ち） |
 
+## コールドスタート検証結果（2026-07-22）
+
+新規 Claude Code Web セッションで private staging の `feat/review-governance-gate-v1`（HEAD `888811e69ce24d7f949627ea7e17e085838d210d`）を取得し、設定編集・再読込みなしの起動時状態から実挙動を検証した。
+
+### 合格項目（すべて実測）
+
+- 新規 Claude Code Web セッションで対象 commit を取得。HEAD `888811e69ce24d7f949627ea7e17e085838d210d`
+- ローカル branch は Web ハーネスの自動生成名だったが、`git ls-remote` で `origin/feat/review-governance-gate-v1` と HEAD が完全一致することを確認
+- working tree / index / untracked が検証開始時・終了時とも clean
+- `.claude/settings.json` が起動時から有効（有効 JSON・`jq -e` 成功）
+- PreToolUse の2 handler 構造を確認（guard-skip-file: `Write|Edit|Bash` ／ commit-review-gate: matcher `Bash` 単一 handler・`command: "sh"`・args exec form）
+- permissions.ask 2件 / permissions.deny 14件を確認
+- reviewer-lite（Read/Grep/Glob・maxTurns 8）/ reviewer-full（Read/Grep/Glob・maxTurns 15）の定義確認
+- review-pack の `disable-model-invocation: true` を確認
+- JSON 検証・`sh -n`（classify-risk.sh / commit-review-gate.sh）成功
+- gate tests: **165 passed / 0 failed**
+- `git status` の素通し成功
+- L3 deny 4形式（`git commit-tree deadbeef` / `git push --force` / `/usr/bin/git push --force` / `env git push --force`）がすべて**実行前に ESCALATED**（該当パターン表示。実 remote への送信なし）
+- `/review-pack` をユーザーが手動起動 → staged 差分なしで **BLOCKED** → Reviewer / Verifier 非起動 → review-gate 非生成（すべて期待どおり）
+- reviewer-lite を名前指定して実起動（YAML のみ返却・schema 全項目・reviewed_diff_hash が入力値と一致）
+- reviewer-full を名前指定して実起動（YAML のみ返却・16観点に対応・reviewed_diff_hash が入力値と一致・critical_findings 0件）
+- 両 Reviewer とも Read / Grep / Glob のみ（定義によりツール制限・ファイル変更なしを実測）
+- 実起動試験後もファイル・index・review-gate の変更なし
+
+### 既知の Low 事項
+
+1. 素通し4形式（`/usr/bin/git status` / `env git status` / `ls` / `env FOO=1 echo ok`）はユーザー側の権限拒否により未実測（deny 側で絶対パス・env 前置形が hook に到達していることは実測済みで、機能欠陥の示唆なし）
+2. Web ハーネスによりローカル branch 名はセッション専用名（内容は対象 commit と同一であることを確認済み）
+3. reviewer-full の `rollback` が、定義上のマッピング（`possible:` / `method:`）ではなく2要素のリストとして出力された（YAML 機械パース時に不整合になり得る schema 揺れ。公開前に出力例の強調等を検討）
+4. maxTurns 上限**到達時**の打切り挙動は未観測（両 Reviewer とも上限内で完了）
+5. ask UI・`/hooks`・`/permissions` 目視・macOS 実機は未確認（ローカル CLI / Remote Control での将来確認項目）
+
+### 判定
+
+- critical: 0 / high: 0 / medium: 0 / low: 上記5件
+- **コールドスタート検証は、Web で確認可能な範囲について合格**
+- 公開版 main・PR・merge・tag は未変更
+
 ## 次に再開すべき地点
 
-- 再開フェーズ: **全フェーズ完了（Phase 1〜7）**。次はユーザーによる**コールドスタート検証**（新セッションでの導入後実挙動確認）へ進むかの判断待ち。残存項目: **macOS 実機での動作確認**・対話環境での ask UI 表示・/hooks / /permissions の目視・reviewer maxTurns 実効（ask UI 以降はローカル CLI / Remote Control 環境で）。成果の所在: commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498 = staging/feat/review-governance-gate-v1（private・ローカル HEAD と SHA 一致確認済み）。公開版 origin は 2752e4a のまま不変。公開する場合は「staging で確認した同一 commit を公開版 feature branch へ push → 公開版 main への PR」という別タスク（本セッションでは実施しない）
-- 最初にやること: private staging の feat/review-governance-gate-v1（9757fd7）からの**コールドスタート検証**を実施するかの判断を受領する（新セッションで branch を取得し、フック発火・/review-pack・reviewer 2体の実挙動を確認する工程。ask UI・maxTurns はローカル CLI / Remote Control で）
+- 再開フェーズ: **全フェーズ完了（Phase 1〜7）＋コールドスタート検証完了（2026-07-22・Web 確認可能範囲で合格）**。次は、公開版リポジトリの同名 feature branch へ private staging で検証済みの commit 列を push するかの**承認待ち**。残存項目（low）: 上記「既知の Low 事項」5件。成果の所在: commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498 = staging/feat/review-governance-gate-v1（private・検証済み HEAD 888811e6 は同 branch の STATE-sync commit）。公開版 origin は 2752e4a のまま不変。公開版 main への PR・merge・tag はさらに後続の別タスク
+- 最初にやること: 1. 本 STATE-sync（コールドスタート検証結果の記録）を `/review-pack` → ユーザー承認 → commit → staging へ push 2. 公開版 feature branch への push 可否の承認を受領する（push のみ。PR・merge・tag・公開版 main 変更は行わない。検証セッションと書込み作業の分離のため新しいセッション/タスクで実施）
 - 前提・注意事項: **ユーザー手動確認5項目の状況（推測で完了扱いにしない）**=
   ①/hooks の目視確認 → **Web 環境の機能制約により確認不能**（2026-07-19 実施。「/hooks isn't available in this environment」表示。失敗ではない）。代替証跡: (a) settings.json の jq 抽出で PreToolUse 2エントリ＝entry1: matcher "Write|Edit|Bash"・handler 1件・guard-skip-file.sh（既存保持）／entry2: matcher "Bash"・**handler 1件（単一）**・command "sh"・args ["${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"]・**has_if: false**、Stop/PostToolUse も既存どおり (b) commit-review-gate の実動作ログ＝本セッションで git commit-tree / force push 系15形式が hook の deny メッセージでブロックされ、git status・非 Git Bash が素通し（scratchpad/phase4b-live-log.txt ほか）＝project 設定から実際に読み込まれ単一 Bash handler として動作している実測
   ②/permissions の目視確認 → **Claude Code Web 環境では利用不可（2026-07-19 実施。「isn't available in this environment」表示。UI 確認不能であり実装失敗ではない）**。代替証跡: settings.json の jq 検証＝ask 2件（git commit / git push）・deny 14件・`--force-with-lease` 独立ルール存在・gh の deny は `gh repo edit --visibility` 正規形限定（全 repo edit ではない）
-  ③対話環境での通常 push の ask プロンプト表示 → **環境制約として確定（2026-07-19 ユーザー判断。追加の push 試験は行わない。「ask 表示確認済み」ではない）**: hook の ask JSON 出力＝fixture テスト（G1P 5形式）で確認済み / Claude Code Web（Auto accept）での ask UI 表示＝**非表示を実測** / fixture のローカル bare への通常 push＝実行された / 公開版 origin への push＝なし / 対話的 ask 表示＝Ask permissions を利用できる**ローカル CLI または Remote Control での将来確認項目** / Phase 1 では Web 環境の制約として受容するかは**ユーザー判断待ち**。Web 環境の commit・push はチャット上の明示的承認とワークフロー停止点で管理（README 保証範囲へ反映済み。L3 の deny は permission mode 非依存で同環境でも実動作確認済み）
-  ④/review-pack の手動起動 → 確認待ち（次回再開手順の1）
-  ⑤reviewer の maxTurns 実効 → **設定値は確認済み・実行時上限の直接観測は Web 環境では不能**（推測で実測済みにしない）
-  参考: /agents は**ウィザードが廃止され `.claude/agents/` の直接管理方式へ変更**（サブエージェント機能自体の廃止ではない）。代替確認: reviewer-lite.md frontmatter 実測（model: inherit / tools: Read, Grep, Glob / maxTurns: 8）・reviewer-full.md frontmatter 実測（同構成 / maxTurns: 15）・両者が本セッションのサブエージェント一覧に tools: Read, Grep, Glob で登録された履歴あり（実使用は /review-pack 実行時のため「登録の確認」）
-  読み取り実測（2026-07-19・変更なし）: `git diff --cached --quiet` → exit 0（staged 差分なし）/ staged ファイル一覧 → 空 / `git rev-parse --git-path claude-review-gate.json` → `.git/claude-review-gate.json` / review-gate ファイル → 不存在（stale 証跡なしの正しい初期状態）。Phase 6 の low 指摘5件（①正当コマンドの文字列部分一致による過剰ブロックの README 明示不足 ②引用挿入形の回避経路=保証範囲内 ③l3_diff_patterns は組み込み外=ベストエフォート明記済み ④利用者追加の不正 ERE が無警告で不作動 ⑤STATE ブロックの end→start 順序時の抽出堅牢化余地）は範囲外改善として記録のみ・未対応。公開版 remote へは一切 push しない。commit・push 未実施
+  ③対話環境での通常 push の ask プロンプト表示 → **環境制約として確定（2026-07-19 ユーザー判断。追加の push 試験は行わない。「ask 表示確認済み」ではない）**: hook の ask JSON 出力＝fixture テスト（G1P 5形式）で確認済み / Claude Code Web（Auto accept）での ask UI 表示＝**非表示を実測** / fixture のローカル bare への通常 push＝実行された / 公開版 origin への push＝なし / 対話的 ask 表示＝Ask permissions を利用できる**ローカル CLI または Remote Control での将来確認項目** / Phase 1 では Web 環境の制約として**受容済み（2026-07-22 ユーザー判断。ローカル CLI / Remote Control での確認項目としては残す）**。Web 環境の commit・push はチャット上の明示的承認とワークフロー停止点で管理（README 保証範囲へ反映済み。L3 の deny は permission mode 非依存で同環境でも実動作確認済み。2026-07-22 コールドスタートセッションでも4形式の実行前 ESCALATED を再実測）
+  ④/review-pack の手動起動 → **2026-07-22 実施済み**: コールドスタートセッションでユーザーが手動起動し、staged 差分なしで BLOCKED・Reviewer / Verifier 非起動・review-gate 非生成を実測（期待どおりの動作）
+  ⑤reviewer の maxTurns 実効 → 設定値確認済み。**2026-07-22 の実起動スモークで両 reviewer とも上限内で完了**（lite: ツール使用4回 / full: ツール使用10回）。上限**到達時の打切り挙動**は未観測のまま（推測で実測済みにしない）
+  参考: /agents は**ウィザードが廃止され `.claude/agents/` の直接管理方式へ変更**（サブエージェント機能自体の廃止ではない）。代替確認: reviewer-lite.md frontmatter 実測（model: inherit / tools: Read, Grep, Glob / maxTurns: 8）・reviewer-full.md frontmatter 実測（同構成 / maxTurns: 15）・両者が本セッションのサブエージェント一覧に tools: Read, Grep, Glob で登録された履歴あり。**2026-07-22 のコールドスタートセッションで両者を名前指定して実起動し、YAML のみ返却・reviewed_diff_hash の入力値一致・Read/Grep/Glob のみでの動作を実測**（「登録の確認」から「実起動確認済み」へ更新。詳細は「コールドスタート検証結果」セクション）
+  読み取り実測（2026-07-19・変更なし）: `git diff --cached --quiet` → exit 0（staged 差分なし）/ staged ファイル一覧 → 空 / `git rev-parse --git-path claude-review-gate.json` → `.git/claude-review-gate.json` / review-gate ファイル → 不存在（stale 証跡なしの正しい初期状態）。Phase 6 の low 指摘5件（①正当コマンドの文字列部分一致による過剰ブロックの README 明示不足 ②引用挿入形の回避経路=保証範囲内 ③l3_diff_patterns は組み込み外=ベストエフォート明記済み ④利用者追加の不正 ERE が無警告で不作動 ⑤STATE ブロックの end→start 順序時の抽出堅牢化余地）は範囲外改善として記録のみ・未対応。公開版 remote へは一切 push しない（2026-07-22 現在も公開版 origin は 2752e4a のまま不変）。※「commit・push 未実施」は 2026-07-19 時点の記録。その後 Phase 7（2026-07-22）で commit 9757fd7 を staging へ push 済み（フェーズ一覧 Phase 7 参照）
