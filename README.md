@@ -202,6 +202,8 @@ commit 前の変更を機械的なリスク下限・Critical Reviewer・review-g
 - L3 に該当しない**通常の `git push` と READY 後の commit に対して、PreToolUse フックは `permissionDecision: ask` を返します**（複合形では permissions.ask が発火しないため、フック層でも ask を返して確認機会を作る設計）。単独形ではゲートの ask と permissions.ask が二重に確認を求める場合があります（defense-in-depth として意図的に許容）。**ただし ask の UI 表示は permission mode に依存します（次項）**
 - **ask の表示と permission mode（重要）**: Claude Code Web のクラウドセッションでは Ask permissions モードを利用できず、**Auto accept 環境では ask UI が表示されないまま実行される場合があります**（実測: Web の Auto accept 環境で通常 push の ask UI が表示されず fixture への push が実行された。一方 **L3 操作の deny は同じ Web 環境でも permission mode に依存しない決定的な拒否として実動作を確認済み**）。したがって **Web 環境では commit・push をチャット上の明示的なユーザー承認とワークフローの停止点によって管理してください**。対話的な ask 表示の実機確認が必要な場合は、Ask permissions を利用できるローカル CLI または Remote Control を使用してください。**ask は Web 環境ではセキュリティ境界として扱わないでください**
 - 秘密情報検知は既知パターンのみのベストエフォートです
+- **GitHub 操作の対象範囲**: 組み込みの `gh` 向け L3 検出は、現在は `gh repo edit --visibility ...` のコマンド文字列表現だけを対象としています。`gh api`・`gh repo delete`・`gh pr merge` など、その他の `gh` 操作は包括的に検査しません。また、GitHub MCP・REST / GraphQL API・ブラウザ UI による操作は PreToolUse ゲートの対象外です。これらはチャット上の明示承認・branch protection・required checks など別の統制で管理してください（GitHub required checks への移行は Phase 3 候補です）
+- **文字列部分一致による過剰拒否**: L3 コマンド検出はシェル構文木の解析ではなく、コマンド文字列全体への部分一致です。そのため `echo "git push --force"` や、同じ文字列を検索する `grep` のように、実際には破壊操作を行わないコマンドでも deny される場合があります。これは fail-closed 方向の既知トレードオフであり、セキュリティ境界や完全なシェル解析ではありません
 - 外部レビュー用パケットの決定的スクラブ（秘密情報マスキング）は **Phase 1 では対象外**です。LLM の判断だけで秘密情報が除去されたとみなさない要件のため、中途半端なマスキング機能は追加せず、外部送信は人間のプレビューと明示操作を前提とします（Phase 3 拡張候補）
 
 ### 前提依存とバージョン

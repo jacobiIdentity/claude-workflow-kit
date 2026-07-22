@@ -12,7 +12,7 @@
 
 - セッションID: `2026-07-19-02`
 - 開始日時: `2026-07-19 09:45`
-- 最終更新: `2026-07-22 12:45`
+- 最終更新: `2026-07-22 19:36`
 
 ## 目標
 
@@ -23,13 +23,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: STATE-sync-coldstart
-- risk_floor: L1
-- risk_final: L1
+- phase: PR-review-final-doc-sync
+- risk_floor: L0
+- risk_final: L2
 - verifier_passed: true
-- reviewer_verdict: approve_with_changes
-- unresolved_issues: low 5件（素通し4形式未実測・Web ハーネス branch 名・reviewer-full rollback 出力形式・maxTurns 上限到達挙動未観測・ask UI / macOS 未確認。「コールドスタート検証結果」セクション参照）
-- next_resume: 本 STATE-sync commit の /review-pack → 承認後 commit → staging へ push。その後、公開版リポジトリの同名 feature branch へ検証済み commit 列を push するかの承認待ち
+- reviewer_verdict: approve
+- unresolved_issues: PR #1 独立レビューの medium 2件は本 README 補足で保証範囲を明確化（機能拡張は後続課題）・low 4件、および macOS 実機・ローカル ask UI・maxTurns 上限到達挙動は未確認のまま（「PR #1 独立レビュー結果」「既知の Low 事項」参照）
+- next_resume: 本 docs 差分（README.md / STATE.md）を /review-pack で検証（risk_final L2・reviewer-full）→ 承認後 commit → private staging へ push → 同一 SHA を公開 feature branch へ push → PR 本文の head SHA・commit 数を更新 → PR 最終状態を再確認 → merge 承認待ち（推奨: merge commit）
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル
@@ -104,6 +104,12 @@
   - 受け入れ基準: 依頼文記載の15項目（①保護対象パス変更が L2 以上 ②閾値超過が L2 ③risk_final<risk_floor 拒否 ④Verifier false 拒否 ⑤Reviewer reject 拒否 ⑥critical finding 残存拒否 ⑦review-gate なし拒否 ⑧staged diff 変更後の古い証跡拒否 ⑨L3 は external_review.completed の値に関わらず常に拒否（2026-07-19 改訂: 旧「外部レビュー未完了なら拒否」を厳格化）⑩STATE.md の approved: true だけでは通らない ⑪git commit -a / --amend 拒否 ⑫全条件成立時も自動 allow でなくユーザー確認 ⑬commit 以外の通常操作を妨げない ⑭hook・新規ファイル除去で既存 kit へ戻る ⑮macOS / Ubuntu 互換）をすべて確認し結果を記録する。実 commit を伴うテストは一時リポジトリのみで行う
 - [x] Phase 6: 独立レビュー
   - 受け入れ基準: 今回新設した reviewer 自身ではない別コンテキストの subagent またはコードレビュー機能で、要件一致・hook 回避経路・fail-open 箇所・誤ブロック・staged diff hash の安定性・shell quoting・JSON 処理・macOS/Linux 互換・README 保証表現・過剰設計・ロールバックを批判的に確認する。重大指摘は最大2巡で修正・再レビューし、2巡で解消しなければ人間へ報告して停止する
+- [~] PR-review-final-doc-sync: PR #1 独立レビュー結果の反映（README 補足＋STATE 同期。変更は README.md / STATE.md の2ファイルのみ。スクリプト・設定・テスト・Reviewer 定義・Skill は変更しない）
+  - 受け入れ基準（実装着手前に確定・2026-07-22）:
+    1. README「保証範囲と残存回避経路（重要）」に、既存内容を変更せず2項目を追加する: ①**GitHub 操作の対象範囲**（組み込みの `gh` 向け L3 検出は現在 `gh repo edit --visibility ...` のコマンド文字列表現だけを対象 / `gh api`・`gh repo delete`・`gh pr merge` などその他の `gh` 操作は包括的に検査しない / GitHub MCP・REST/GraphQL API・ブラウザ UI による操作は PreToolUse ゲートの対象外 / これらはチャット上の明示承認・branch protection・required checks など別の統制で管理 / GitHub required checks への移行は Phase 3 候補）②**文字列部分一致による過剰拒否**（L3 コマンド検出はシェル構文木の解析ではなくコマンド文字列全体への部分一致 / `echo "git push --force"` や同じ文字列を検索する `grep` など実際には破壊操作を行わないコマンドでも deny される場合がある / fail-closed 方向の既知トレードオフであり、セキュリティ境界や完全なシェル解析ではない）。既存の保証表現を強めず、検出できない操作を検出可能と記載しない
+    2. STATE.md に PR #1 独立レビュー結果（base/head SHA・変更規模・機械確認結果・独立レビュー判定・reviewer-full verdict と confidence・reviewed diff hash・merge blocker 有無・推奨 merge 方式・未確認事項・受容済み事項・medium 2件の扱い）を記録し、review-gate-state ブロックと「次に再開すべき地点」を本 docs 同期タスクの状態へ更新する
+    3. 機械確認がすべて成功する: `git diff --check` / `jq -e`（settings.json・risk-rules.json）/ `sh -n`（classify-risk.sh・commit-review-gate.sh・run-gate-tests.sh）/ gate tests **165 passed / 0 failed**（テスト期待値の変更なし）
+    4. 変更ファイルが README.md / STATE.md の2件のみで、stage も同2件の明示 `git add README.md STATE.md` のみ（`git add .` / `git add -A` 不使用。unstaged / untracked が残らない）。`risk_final` は「README の保証範囲と残存回避経路を変更するため」機械的下限にかかわらず L2 へ引き上げ、Reviewer は reviewer-full を使用する。commit・push・PR 本文変更・merge は行わず、/review-pack のユーザー手動起動待ちで停止する
 - [x] Phase 7: 承認待ち停止 → commit → private staging へ push（2026-07-22 完了: /review-pack READY・証跡生成 → ユーザー承認により commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498（親=公開版 main 2752e4a・12ファイル・単一行メッセージ）→ ユーザー承認により staging（jacobiidentity/claude-workflow-kit-staging-private・private 確認済み）の feat/review-governance-gate-v1 へ push（--set-upstream・単一 ref・force なし）。local=remote SHA 一致・staging/main（bb248e6）不変・origin/main（2752e4a）不変・origin に同名 branch 未作成を確認。PR・merge・tag・追加 commit なし）
   - 受け入れ基準: 変更ファイル一覧・diff 概要・STATE.md 更新内容・受け入れ基準ごとの結果・実行/未実施テスト・Verifier 結果・独立レビュー結果（critical findings 原文）・残存リスク・未解決事項・ロールバック方法・公開版 remote 未送信の確認・commit 予定メッセージ・push 予定先（private staging remote / feat/review-governance-gate-v1）を提示して commit せず停止する。ユーザーの明示承認後にのみ commit し、private staging の同名ブランチへ push して SHA を報告する。承認後も main 更新・公開版 push・PR・merge・force push・tag・設定変更は行わない
 
@@ -125,6 +131,7 @@
 - [x] Phase 4B（設定登録のみ完了・実機検証は新セッション待ち→同一セッション実機検証に方針変更）: `.claude/settings.json` を承認済み diff＋修正条件（3ハンドラを exec form）で変更。2026-07-19 差し戻しにより `Bash(git push --force-with-lease:*)` を deny へ追加（**計14件**。--force:* の末尾ワイルドカードは空白区切りのため --force-with-lease に一致しない）。jq valid・git diff --check clean・diff 全文提示済み — permissions.ask 既存2件保持・permissions.deny 13ルール新設（gh は `gh repo edit --visibility` 正規形のみ）・PreToolUse に matcher "Bash" 1エントリ追加（if: `Bash(git *)` / `Bash(gh *)` / `Bash(env *)` の3ハンドラ、`command: "sh"` + `args: ["${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"]` の exec form）・guard-skip-file / Stop / PostToolUse 無変更。jq で JSON 有効・構造確認、回帰162 PASS。**当該セッションでフックのホットリロードを実測**: `git commit-tree deadbeef` → gate の L3 メッセージで deny ✓ / `git status` → 素通し ✓ / `env FOO=1 echo` → 素通し ✓（push 系の deny 確認は安全のため新セッション検証に委ねる）
 - [x] Phase 4A: ①STATE.md.template に review-gate-state ブロック追加（マーカー1組・7キー各1件・初期値 UNSET・承認フラグの一般化注記のみ。ゲート抽出仕様と文字単位一致）②CLAUDE.md へ §6 ツリー追記＋新 §8（最小参照ルール: L0-L3/Reviewer 連動・/review-pack 手動起動・明示 stage・add -A/. 禁止・ask 必須）で168行（≤170）③README へ「レビュー統制・人間承認支援機能」セクション追加（L0-L3 定義表 / 保護対象=組み込み8＋既定追加3＝計11 列挙 / Reviewer 選択規則 L3=常に ESCALATED / /review-pack 手順・明示 stage 前提 / stale 証跡削除 / READY 限定生成 / 非セキュリティ境界の明記 / 残存回避経路 / 依存=jq・git・POSIX sh・CC v2.1.85+（env の jq 欠損時停止を含む実挙動）/ ロールバック手順 / git-path 保存 / スクラブ対象外理由）④機械確認: 回帰162 PASS・マーカー/キー数 各1・CLAUDE.md 168行・git diff --check clean・settings.json 未変更（unstaged/staged とも diff --exit-code OK）・テンプレート UNSET→deny／正規化→ask を fixture 実測（ログ: scratchpad/phase4a-check.txt）。settings.json は不変更のまま
 - [x] Phase 2 第2次差し戻し修正（2026-07-19 指摘4件＋層構成1件に対応）: ①組み込み最低ルールを両スクリプトに固定（BUILTIN_PROTECTED 8種 / BUILTIN_L3 14パターン）し risk-rules.json を追加専用へ降格（rules は残余3パス＋空の l3_command_patterns に変更・state_md_required 廃止）②commit 経路で統制4ファイルの staged/worktree 整合性検査を追加 ③STATE.md 検査を全文 ERE から review-gate-state ブロック照合（マーカー1個・phase/risk_floor 再計算値/risk_final/verifier_passed/reviewer_verdict 一致・unresolved/next_resume 非空）へ置換 ④destructive push（-d/-vf/-df/--prune・短縮クラスタ）を組み込み検出 ⑤テスト全面改訂: W(自己弱体化4)・I(整合性6)・S(ブロック照合12)・P(destructive push・誤検知ガード) を追加し計137ケース、137 passed / 0 failed（ログ: scratchpad/phase2rev2-test-log.txt。sh -n 3スクリプト OK を記録）。settings.json は引き続き無変更
+- [x] PR-review-final-doc-sync（docs 編集・機械確認・verifier・明示 stage まで完了。commit は /review-pack →ユーザー承認待ち）: ①README「保証範囲と残存回避経路（重要）」へ2項目追加（GitHub 操作の対象範囲 / 文字列部分一致による過剰拒否。追加2行のみ・既存行の変更なし）②STATE.md へ PR #1 独立レビュー結果セクションを追加し、review-gate-state ブロック・次に再開すべき地点を同期 ③機械確認: `git diff --check` OK / `jq -e`（settings.json・risk-rules.json）OK / `sh -n` 3スクリプト OK / gate tests **165 passed / 0 failed**（テスト期待値の変更なし）④変更ファイルは README.md / STATE.md の2件のみ・`git add README.md STATE.md` の明示 stage ⑤risk_final は README 保証範囲の意味変更を理由に L2 へ引き上げ（reviewer-full 使用）。commit・push・PR 本文変更・merge は未実施
 - [x] Phase 2 差し戻し修正（2026-07-19 ユーザー独立確認の指摘10件に対応）: ①risk-rules.json 全面改訂（保護11パス・L3 コマンド13パターン=前置オプション/ラッパー/force refspec/--mirror/--delete/:ref 対応・state_md_required 6項目を新設）②commit-review-gate.sh 再構成（git/gh スコープ判定→スコープ確定後は入力不正・rules 異常も fail-closed／Phase 1 は L3 常時 deny・external_review.required=true も deny／staged 版 STATE.md の必須6項目検査／証跡保存先を git rev-parse --git-path claude-review-gate.json へ変更）③tests 改訂（既存83維持＋敵対的28ケース追加=計111。111 passed / 0 failed。ログ: scratchpad/phase2rev-test-log.txt）④sh -n 3スクリプト再通過。settings.json は引き続き無変更
 
 ## 検証履歴
@@ -147,6 +154,8 @@
 | Phase 6 独立レビュー（fresh context general-purpose・Phase 2〜5 全体・チェックリスト11項目） | passed: true（11項目すべて独立確認 OK・テスト165/165 とロールバック21/21 をレビュアー自身が再実行・critical/high 0件・low 5件＋info 2件=いずれも文書化済み設計トレードオフか緩和済み） | 1回目 | 2026-07-19 18:10 |
 | ask 保証表現の修正（README / STATE.md。実装無変更） | passed: true（4観点 10/10。6項目明記・無条件表現なし・実装整合・165テスト回帰なし） | 1回目 | 2026-07-19 19:45 |
 | STATE-sync-coldstart: STATE.md（コールドスタート検証結果の同期。/review-pack 初回検証） | passed: true（3観点 10/10、improvements・critical_errors なし） | 1回目 | 2026-07-22 12:53 |
+| PR-review-final-doc-sync: README 補足2項目＋STATE 同期（README.md / STATE.md のみ） | passed: true（3観点 10/10、improvements・critical_errors なし） | 1回目 | 2026-07-22 19:35 |
+| PR-review-final-doc-sync: /review-pack 初回検証（staged 2ファイル・H1） | passed: true（confidence high・10/10、improvements・critical_errors なし） | 1回目 | 2026-07-22 19:45 |
 
 ## 発生エラーと対処
 
@@ -197,10 +206,29 @@
 - **コールドスタート検証は、Web で確認可能な範囲について合格**
 - 公開版 main・PR・merge・tag は未変更
 
+## PR #1 独立レビュー結果（2026-07-22）
+
+private staging の PR #1（`feat/review-governance-gate-v1`）に対する独立レビューの記録。
+
+- 対象: PR #1
+- base SHA: `2752e4ab31f7fccd535e707931b91719478c004e`
+- review 対象 head SHA: `e0fd6d8066fde3ab0c85333cfaf88ddb67eea806`
+- 変更規模: 12ファイル・3 commit・+1638 / -81
+- 機械確認: JSON 検証成功 / `sh -n` 成功 / gate tests **165 passed / 0 failed**
+- 公開内容監査: 実秘密情報なし
+- メイン独立レビュー: critical 0 / high 0 / medium 2 / low 4
+- reviewer-full verdict: `approve_with_changes`（confidence: `medium`）
+- reviewed diff hash: `b755565304d45f4edd3ba442dfe2570dcc68b13e`
+- merge blocker: なし
+- 推奨 merge 方式: merge commit
+- 未確認事項: macOS 実機・ローカル CLI の ask UI 表示・maxTurns 上限到達時の打切り挙動など（「既知の Low 事項」と同系統。推測で確認済み扱いにしない）
+- 受容済み事項: private staging リポジトリ名の公開はユーザー受容済み
+- medium 2件の扱い: README「保証範囲と残存回避経路（重要）」への補足2項目（GitHub 操作の対象範囲 / 文字列部分一致による過剰拒否）で保証範囲を明確化し、機能拡張（gh 操作の包括検査・シェル構文解析など）は後続課題とする
+
 ## 次に再開すべき地点
 
-- 再開フェーズ: **全フェーズ完了（Phase 1〜7）＋コールドスタート検証完了（2026-07-22・Web 確認可能範囲で合格）**。次は、公開版リポジトリの同名 feature branch へ private staging で検証済みの commit 列を push するかの**承認待ち**。残存項目（low）: 上記「既知の Low 事項」5件。成果の所在: commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498 = staging/feat/review-governance-gate-v1（private・検証済み HEAD 888811e6 は同 branch の STATE-sync commit）。公開版 origin は 2752e4a のまま不変。公開版 main への PR・merge・tag はさらに後続の別タスク
-- 最初にやること: 1. 本 STATE-sync（コールドスタート検証結果の記録）を `/review-pack` → ユーザー承認 → commit → staging へ push 2. 公開版 feature branch への push 可否の承認を受領する（push のみ。PR・merge・tag・公開版 main 変更は行わない。検証セッションと書込み作業の分離のため新しいセッション/タスクで実施）
+- 再開フェーズ: **PR-review-final-doc-sync（PR #1 独立レビュー結果の反映。docs 編集・機械確認・verifier passed・明示 stage まで完了。/review-pack のユーザー手動起動待ち）**。レビュー対象 head は `e0fd6d8066fde3ab0c85333cfaf88ddb67eea806`（本 docs 修正の commit 後、PR は 4 commit になる）。公開版 main への merge・tag はさらに後続
+- 最初にやること: 1. 本 docs 差分（README.md / STATE.md の staged 2ファイル）を `/review-pack` で検証する（risk_final L2・reviewer-full・verifier passed・verdict approve / approve_with_changes・critical 0・staged diff hash 一致。READY の場合だけ review-gate 証跡生成） 2. ユーザー承認後に commit 3. private staging へ push 4. 同一 SHA を公開 feature branch へ push 5. PR 本文の head SHA・追加 commit 数・差分数値を更新 6. PR の最終状態を再確認 7. merge 承認待ち（推奨方式: merge commit）
 - 前提・注意事項: **ユーザー手動確認5項目の状況（推測で完了扱いにしない）**=
   ①/hooks の目視確認 → **Web 環境の機能制約により確認不能**（2026-07-19 実施。「/hooks isn't available in this environment」表示。失敗ではない）。代替証跡: (a) settings.json の jq 抽出で PreToolUse 2エントリ＝entry1: matcher "Write|Edit|Bash"・handler 1件・guard-skip-file.sh（既存保持）／entry2: matcher "Bash"・**handler 1件（単一）**・command "sh"・args ["${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"]・**has_if: false**、Stop/PostToolUse も既存どおり (b) commit-review-gate の実動作ログ＝本セッションで git commit-tree / force push 系15形式が hook の deny メッセージでブロックされ、git status・非 Git Bash が素通し（scratchpad/phase4b-live-log.txt ほか）＝project 設定から実際に読み込まれ単一 Bash handler として動作している実測
   ②/permissions の目視確認 → **Claude Code Web 環境では利用不可（2026-07-19 実施。「isn't available in this environment」表示。UI 確認不能であり実装失敗ではない）**。代替証跡: settings.json の jq 検証＝ask 2件（git commit / git push）・deny 14件・`--force-with-lease` 独立ルール存在・gh の deny は `gh repo edit --visibility` 正規形限定（全 repo edit ではない）
