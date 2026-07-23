@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "_comment": "protected_paths / l3_command_patterns は組み込み最低ルールへの追加専用。組み込みルール（classify-risk.sh / commit-review-gate.sh 内に固定）はこのファイルでは削除・置換できない",
+  "protected_paths": [
+    ".claude/settings.local.json",
+    ".github/workflows/**",
+    "LICENSE"
+  ],
+  "doc_extensions": ["md", "markdown", "txt", "rst", "adoc"],
+  "thresholds": {
+    "l0_max_lines": 50,
+    "l1_max_files": 7,
+    "l1_max_lines": 300
+  },
+  "l3_command_patterns": [],
+  "l3_diff_patterns": [
+    "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    "AKIA[0-9A-Z]{16}",
+    "ghp_[A-Za-z0-9]{36}",
+    "gho_[A-Za-z0-9]{36}",
+    "github_pat_[A-Za-z0-9_]{22,}",
+    "sk-ant-[A-Za-z0-9_-]{20,}",
+    "xox[baprs]-[A-Za-z0-9-]{10,}"
+  ]
+}

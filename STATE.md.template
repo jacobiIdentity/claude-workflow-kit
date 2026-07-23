@@ -18,6 +18,25 @@
 
 <このタスク全体のゴールを1〜3行で記述>
 
+## レビューゲート状態（機械判定用）
+
+<!--
+review-pack skill が現在のレビューサイクルの確定値で更新するブロック。
+マーカーは1組だけ・各キーは1件だけ。commit-review-gate.sh が staged 版を抽出して
+review-gate 証跡・再計算値と一致照合する。任意の承認フラグをこのファイルに記載しても
+人間承認の判定には使用されない（人間承認は commit 時の権限確認が正本）。
+UNSET のままでは commit ゲートが拒否する
+-->
+<!-- review-gate-state:start -->
+- phase: UNSET
+- risk_floor: UNSET
+- risk_final: UNSET
+- verifier_passed: UNSET
+- reviewer_verdict: UNSET
+- unresolved_issues: UNSET
+- next_resume: UNSET
+<!-- review-gate-state:end -->
+
 ## フェーズ一覧
 
 <!-- 各フェーズの受け入れ基準は着手前に記入する（実装後の後付け・書き換えは禁止） -->

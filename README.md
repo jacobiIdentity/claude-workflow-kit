@@ -153,6 +153,73 @@ Claude Code の標準機能（subagents / hooks / skills / CLAUDE.md）だけで
 - **保証範囲**: Stopフックが保証するのは「追跡対象（Edit/Write）の最後の変更先が STATE.md であること」のみで、STATE.md の記載内容の完全性までは検証しません。Bash 経由のファイル変更、および同一リポジトリを複数セッションで並行編集するケースは追跡対象外です
 - **このリポジトリ自体を Claude Code で編集する場合**も、本キットの hooks と CLAUDE.md がそのまま有効になります。その場合は先に `STATE.md.template` から `STATE.md` を作成してから作業してください
 
+## レビュー統制・人間承認支援機能
+
+commit 前の変更を機械的なリスク下限・Critical Reviewer・review-gate 証跡・PreToolUse ゲートで統制し、利用者を「最終 Verifier」から「承認責任者」へ移すための機能です。
+
+### リスクレベル（機械的下限は `classify-risk.sh` が staged diff から算出）
+
+| レベル | 既定条件 | 必要なレビュー |
+|---|---|---|
+| L0 | ドキュメント拡張子のみ・50行以下 | Verifier のみ（Reviewer なし） |
+| L1 | 保護対象パスなし・7ファイル以下かつ300行以下 | Verifier + reviewer-lite（軽量5観点） |
+| L2 | 保護対象パスあり・8ファイル以上または300行超 | Verifier + reviewer-full（完全16観点）+ 人間承認 |
+| L3 | 秘密情報パターン・履歴改変・force push・公開範囲変更 | **Phase 1 では常に ESCALATED（commit 不可）** |
+
+- エージェントはリスクを引き上げられますが、機械的下限より下げられません。行数・ファイル数は補助条件で、保護対象パス・操作種別を優先します
+- 数値閾値は `.claude/risk-rules.json` の `thresholds` で変更できます
+- README 等の「安全性・保証範囲・公開条件」の意味変更はパスだけでは判定できないため、メインまたは Reviewer が L2 へ引き上げる運用とします
+
+### 保護対象パス（変更すると L2 以上）
+
+- **スクリプト組み込みの最低ルール（8パターン。`risk-rules.json` では削除・置換できない）**: `.claude/risk-rules.json` / `.claude/hooks/**` / `.claude/settings.json` / `.claude/agents/**` / `.claude/skills/**` / `.claude/commands/**` / `CLAUDE.md` / `STATE.md.template`
+- **risk-rules.json の既定追加（3パターン）**: `.claude/settings.local.json` / `.github/workflows/**` / `LICENSE`
+- 初期状態の有効合計は11パターン。利用者は `risk-rules.json` の `protected_paths` に**追加のみ**できます（L3 操作パターンも同様に追加のみ）
+
+### Reviewer の選択規則（最終リスクレベルに連動）
+
+- L0: Reviewer なし（証跡の reviewer は null）/ L1: `reviewer-lite`（maxTurns 8）/ L2: `reviewer-full`（maxTurns 15）/ L3: 常に ESCALATED（標準 Reviewer 経路で READY にしない）
+- reviewer-lite が L2 への引き上げを推奨した場合は reviewer-full へ切り替えて再レビューします。Reviewer 実行は初回1回＋再実行最大2回＝合計3回までで、超過・同一重大指摘の2回連続残存はエスカレーションします
+- Reviewer は read-only（Read / Grep / Glob のみ）で、Executor の自己評価を入力に含めません。このコンテキスト分離はバイアス低減であり、**完全な独立性の保証ではありません**（同一モデル系列が同じ誤りを共有する可能性は残ります）
+
+### /review-pack の使い方（手動起動のみ）
+
+1. commit 対象のパスを**利用者が明示的に `git add`**（`git add .` / `git add -A` は使わない）
+2. `/review-pack` を実行（`disable-model-invocation: true` のため Claude は自動起動できない）
+3. スキルは最初に**既存の review-gate 証跡を削除**し、staged diff の存在と「unstaged な追跡ファイル変更がないこと」を確認してから、二段階レビュー（候補レビュー → STATE.md 同期 → 最終 staged diff への最終レビュー）を実行
+4. 判定が **READY の場合だけ** review-gate 証跡を生成します。**BLOCKED / ESCALATED では証跡を生成しません**（承認パケットは状態にかかわらず出力）
+5. `git commit -m "<message>"` を実行すると PreToolUse ゲートが証跡・ハッシュ・STATE ブロックを検査し、全条件成立でも自動 allow せず **`permissionDecision: ask`** を返します。Ask permissions が有効な環境では権限確認が表示され、許可した場合のみ commit されます（**Web の Auto accept 環境では ask UI が表示されない場合があります** — 「保証範囲と残存回避経路」の permission mode の項を参照）
+
+- review-gate 証跡は `git rev-parse --git-path claude-review-gate.json`（通常は `.git/` 配下）に保存され、**ワークツリーには生成されません**（gitignore 不要・change-log にも記録されません）。証跡は commit 前提条件の機械確認であり、**人間承認の証明ではありません**
+- STATE.md の `review-gate-state` ブロックは review-pack が更新し、ゲートが staged 版を照合します。任意の承認フラグを STATE.md に書いても人間承認の判定には使用されません
+
+### 保証範囲と残存回避経路（重要）
+
+- 本機能（hooks・permissions・Reviewer のすべて）は、**悪意あるプロセスに対するセキュリティ境界ではありません**。協調的に動作する Claude Code の誤り・見落としを減らす運用ガードです
+- PreToolUse の文字列検査では検出できない回避経路が残ります: `sh -c '…'`・シェルエイリアス・`exec` / `command` 前置・スクリプトファイル経由の Git 実行・エンコード表現・Git plumbing の間接表現など
+- 統制スクリプト自体を弱体化して stage する改変は、staged/worktree 整合性検査では止まりません（ただし必ず staged diff に含まれ、L2（保護対象）・Reviewer レビュー・チャット上のユーザー承認の対象になります。ask UI の表示は permission mode に依存します）
+- **permissions.deny / ask はプレフィックス一致の「単独形の正規形」だけが対象です**（例: `git push --force …` で始まるコマンド）。`cd … && git push --force` のような複合形や `/usr/bin/git` のようなパス前置形には一致しません（実測確認済み）。これらはフック層（コマンド文字列全体への部分一致）が実効統制です。permissions はフック削除時にも残る独立防御層として維持します
+- L3 に該当しない**通常の `git push` と READY 後の commit に対して、PreToolUse フックは `permissionDecision: ask` を返します**（複合形では permissions.ask が発火しないため、フック層でも ask を返して確認機会を作る設計）。単独形ではゲートの ask と permissions.ask が二重に確認を求める場合があります（defense-in-depth として意図的に許容）。**ただし ask の UI 表示は permission mode に依存します（次項）**
+- **ask の表示と permission mode（重要）**: Claude Code Web のクラウドセッションでは Ask permissions モードを利用できず、**Auto accept 環境では ask UI が表示されないまま実行される場合があります**（実測: Web の Auto accept 環境で通常 push の ask UI が表示されず fixture への push が実行された。一方 **L3 操作の deny は同じ Web 環境でも permission mode に依存しない決定的な拒否として実動作を確認済み**）。したがって **Web 環境では commit・push をチャット上の明示的なユーザー承認とワークフローの停止点によって管理してください**。対話的な ask 表示の実機確認が必要な場合は、Ask permissions を利用できるローカル CLI または Remote Control を使用してください。**ask は Web 環境ではセキュリティ境界として扱わないでください**
+- 秘密情報検知は既知パターンのみのベストエフォートです
+- **GitHub 操作の対象範囲**: 組み込みの `gh` 向け L3 検出は、現在は `gh repo edit --visibility ...` のコマンド文字列表現だけを対象としています。`gh api`・`gh repo delete`・`gh pr merge` など、その他の `gh` 操作は包括的に検査しません。また、GitHub MCP・REST / GraphQL API・ブラウザ UI による操作は PreToolUse ゲートの対象外です。これらはチャット上の明示承認・branch protection・required checks など別の統制で管理してください（GitHub required checks への移行は Phase 3 候補です）
+- **文字列部分一致による過剰拒否**: L3 コマンド検出はシェル構文木の解析ではなく、コマンド文字列全体への部分一致です。そのため `echo "git push --force"` や、同じ文字列を検索する `grep` のように、実際には破壊操作を行わないコマンドでも deny される場合があります。これは fail-closed 方向の既知トレードオフであり、セキュリティ境界や完全なシェル解析ではありません
+- 外部レビュー用パケットの決定的スクラブ（秘密情報マスキング）は **Phase 1 では対象外**です。LLM の判断だけで秘密情報が除去されたとみなさない要件のため、中途半端なマスキング機能は追加せず、外部送信は人間のプレビューと明示操作を前提とします（Phase 3 拡張候補）
+
+### 前提依存とバージョン
+
+- `jq`・`git`・POSIX `sh` が必須です。ゲートは matcher `Bash` の**単一ハンドラ（if なし・exec form）**で全 Bash に登録され、スクリプト内のスコープ判定が非 Git コマンドを即素通しします。このため **jq が欠損すると全 Bash ツール呼び出しが fail-closed で停止します**（jq の再インストールで復旧。環境異常の即時検知を優先する設計）
+- スクリプトは POSIX sh と macOS（BSD）/Linux 共通のコマンドのみで実装し、設計・fixture テストで互換性を確認していますが、**macOS 実機では未検証です**（検証済みの実機は Linux のみ。macOS 非対応という意味ではありません。macOS でお使いの場合は導入後に `sh tests/run-gate-tests.sh` の実行を推奨します）
+- `if` 条件付き登録（`Bash(git *)` 等）は採用していません。if はコマンド名照合のため **`/usr/bin/git push --force` のようなパス前置形でフック自体が起動せず素通りする実挙動を確認**したためです（本キット開発時の実測: Claude Code 2.1.211）。起動プロセス数を減らしたい場合に if 付きへ変更すると、この回避経路が復活する点に注意してください
+
+### ロールバック（レビュー統制機能だけを無効化する）
+
+1. `.claude/settings.json` から commit-review-gate.sh の PreToolUse ハンドラと permissions.deny の追加分を削除（既存の guard-skip-file / Stop / PostToolUse / permissions.ask は残す）
+2. 新規ファイルを削除: `.claude/hooks/classify-risk.sh` / `.claude/hooks/commit-review-gate.sh` / `.claude/risk-rules.json` / `.claude/agents/reviewer-lite.md` / `.claude/agents/reviewer-full.md` / `.claude/skills/review-pack/` / `tests/run-gate-tests.sh`
+3. `rm -f "$(git rev-parse --git-path claude-review-gate.json)"` で証跡を削除
+4. CLAUDE.md §8・STATE.md.template のレビューゲート状態ブロック・本セクションの記述を除去
+既存の executor / verifier / Stop フック / STATE.md 運用はそのまま継続できます。
+
 ## 導入後の動作確認
 
 ※ 上記の通り、導入後は Claude Code を再起動してから実施してください。
