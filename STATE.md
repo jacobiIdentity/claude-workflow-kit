@@ -23,13 +23,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: PR-review-final-doc-sync
-- risk_floor: L0
+- phase: M1-A-sanitized-git-env
+- risk_floor: L2
 - risk_final: L2
 - verifier_passed: true
-- reviewer_verdict: approve
-- unresolved_issues: PR #1 独立レビューの medium 2件は本 README 補足で保証範囲を明確化（機能拡張は後続課題）・low 4件、および macOS 実機・ローカル ask UI・maxTurns 上限到達挙動は未確認のまま（「PR #1 独立レビュー結果」「既知の Low 事項」参照）
-- next_resume: 本 docs 差分（README.md / STATE.md）を /review-pack で検証（risk_final L2・reviewer-full）→ 承認後 commit → private staging へ push → 同一 SHA を公開 feature branch へ push → PR 本文の head SHA・commit 数を更新 → PR 最終状態を再確認 → merge 承認待ち（推奨: merge commit）
+- reviewer_verdict: approve_with_changes
+- unresolved_issues: fresh-context 独立レビューの non-blocking 5件（B-1 の stat -c は macOS で弱い / C.UTF-8 なし環境で B-2 SKIP / gate 側の一部 env ケースと理由文字列の比較粒度が限定的 / B-1 代表系列に G2 なし / 裸 git 監査 grep は近似的）＋reviewer-full 指摘の次サイクル手直し候補（M1A-C2 の ls 素通し検査が exit code を実検証していない / B-1 は commit 後に自明成立化）・非デフォルト config 環境ではハッシュ非連続のため commit 後に証跡再生成が必要
+- next_resume: M1-A checkpoint commit のユーザー承認待ち（gate の ask ＋チャット承認。承認後は commit のみ・push/M1-B は別認可）。承認されない場合は staged 解除の指示を待つ
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル

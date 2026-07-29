@@ -46,6 +46,24 @@ printf '%s\n' "$CMD" | grep -Eq "$SCOPE_RE" || exit 0
 
 # ===== ここから下は Git/gh スコープ。異常はすべて fail-closed =====
 
+# --- sanitized Git 実行環境（M1-A） ---
+# Git/gh スコープ確定後に PATH・env 実体・git 実体を単回捕捉し、以後の全 Git 呼び出しを
+# 呼び出し元プロセス環境（GIT_* 変数・system/global config）から遮断する。
+# command -v は関数・alias・相対パスを返し得るため、絶対パス以外は fail-closed。
+# 非 Git/gh コマンドはこの検査より前（スコープ判定）で素通しされる。
+SANITIZED_PATH="$PATH"
+ENV_BIN=$(command -v env) \
+  || emit deny "env が見つからないため Git/gh 操作を拒否します（fail-closed）。"
+GIT_BIN=$(command -v git) \
+  || emit deny "git が見つからないため Git/gh 操作を拒否します（fail-closed）。"
+case "$ENV_BIN" in /*) : ;; *) emit deny "env が絶対パスに解決されないため Git/gh 操作を拒否します（fail-closed）。" ;; esac
+case "$GIT_BIN" in /*) : ;; *) emit deny "git が絶対パスに解決されないため Git/gh 操作を拒否します（fail-closed）。" ;; esac
+git_s() {
+  "$ENV_BIN" -i PATH="$SANITIZED_PATH" LC_ALL=C \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null \
+    "$GIT_BIN" "$@"
+}
+
 PROJ="${CLAUDE_PROJECT_DIR:-.}"
 RULES="$PROJ/.claude/risk-rules.json"
 rules_deny() {
@@ -132,14 +150,14 @@ fi
 
 # ===== 以降はサポート形式の git commit のみ =====
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) \
+ROOT=$(git_s rev-parse --show-toplevel 2>/dev/null) \
   || emit deny "リポジトリルートを特定できません（fail-closed）。"
 
 # --- 統制ファイルの staged / working tree 整合性検査 ---
 # ゲートは working tree 上のスクリプト・設定で動くが、commit されるのは index 上の内容。
 # 不一致（unstaged 差分）があれば、検査したものと commit されるものが異なるため拒否する
 for cf in .claude/risk-rules.json .claude/hooks/classify-risk.sh .claude/hooks/commit-review-gate.sh .claude/settings.json; do
-  if git -C "$ROOT" diff --name-only -- ":(top)$cf" 2>/dev/null | grep -q .; then
+  if git_s -C "$ROOT" diff --name-only -- ":(top)$cf" 2>/dev/null | grep -q .; then
     emit deny "統制ファイル $cf に staged と working tree の不一致（unstaged 差分）があります。実行中の統制ロジックと commit 対象が一致しないため拒否します（fail-closed）。差分を stage するか破棄してください。"
   fi
 done
@@ -161,7 +179,7 @@ N_LINES=$(printf '%s' "$CLS_OUT" | jq -r '.changed_lines')
 [ "$FLOOR" = "L3" ] && emit deny "機械的リスク下限が L3 です（ESCALATED）。Phase 1 の本ゲートでは L3 変更は commit できません。人間の判断・直接操作が必要です。"
 
 # --- review-gate 証跡の検査（保存先はワークツリー外の Git 管理領域） ---
-GP=$(git -C "$ROOT" rev-parse --git-path claude-review-gate.json 2>/dev/null) \
+GP=$(git_s -C "$ROOT" rev-parse --git-path claude-review-gate.json 2>/dev/null) \
   || emit deny "review-gate 証跡の保存先を解決できません（fail-closed）。"
 case "$GP" in
   /*) GATE="$GP" ;;
@@ -206,9 +224,9 @@ jq -e '(.generated_at | type) == "string" and (.generated_at | length) > 0' "$GA
 # 文書全体への語句存在確認は行わない（過去フェーズの記録による誤通過を防ぐ）。
 # マーカーで囲まれた単一ブロックを抽出し、証跡・再計算値と項目単位で一致照合する。
 # approved: true 等の承認文字列は判定に使用しない
-git -C "$ROOT" diff --cached --no-renames --name-only -- ':(top)STATE.md' 2>/dev/null | grep -q . \
+git_s -C "$ROOT" diff --cached --no-renames --name-only -- ':(top)STATE.md' 2>/dev/null | grep -q . \
   || emit deny "staged に STATE.md の更新が含まれていません（FR-09）。STATE.md を更新して git add してください。"
-STATE_STAGED=$(git -C "$ROOT" show :STATE.md 2>/dev/null) \
+STATE_STAGED=$(git_s -C "$ROOT" show :STATE.md 2>/dev/null) \
   || emit deny "staged 版の STATE.md を読み取れません（fail-closed）。"
 
 MS='<!-- review-gate-state:start -->'

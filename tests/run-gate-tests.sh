@@ -592,6 +592,338 @@ reset_stage
 # G15: review-gate 保存先が git rev-parse --git-path と一致（ワークツリー外）
 check "G15 保存先 = .git/claude-review-gate.json" ".git/claude-review-gate.json" "$GATE_PATH"
 
+# ============ M1A: sanitized Git 実行環境（計画 §6 A/B/C） ============
+# 対象: classify-risk.sh / commit-review-gate.sh の git_s 経由実行と env 遮断
+
+REAL_GIT=$(command -v git)
+REAL_ENV=$(command -v env)
+KIT_HEAD_HAS_V1=1
+
+# --- M1A 共通 fixture: myers/histogram が分岐する内容（git t4033 由来）＋順序感度用2ファイル ---
+reset_stage
+cat > f.c <<'M1AEOF'
+#include <stdio.h>
+
+// Frobs foo heartily
+int frobnitz(int foo)
+{
+    int i;
+    for(i = 0; i < 10; i++)
+    {
+        printf("Your answer is: ");
+        printf("%d\n", foo);
+    }
+}
+
+int fact(int n)
+{
+    if(n > 1)
+    {
+        return fact(n-1) * n;
+    }
+    return 1;
+}
+
+int main(int argc, char **argv)
+{
+    frobnitz(fact(10));
+}
+M1AEOF
+printf 'aa1\naa2\n' > aa.txt
+printf 'zz1\nzz2\n' > zz.txt
+git add f.c aa.txt zz.txt
+git commit -qm m1a-base
+cat > f.c <<'M1AEOF'
+#include <stdio.h>
+
+int fib(int n)
+{
+    if(n > 2)
+    {
+        return fib(n-1) + fib(n-2);
+    }
+    return 1;
+}
+
+// Frobs foo heartily
+int frobnitz(int foo)
+{
+    int i;
+    for(i = 0; i < 10; i++)
+    {
+        printf("%d\n", foo);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    frobnitz(fib(10));
+}
+M1AEOF
+printf 'aa1\naa2-mod\n' > aa.txt
+printf 'zz1\nzz2-mod\n' > zz.txt
+git add f.c aa.txt zz.txt
+write_state test L1 L1 true approve none "Phase 3"
+BASE_JSON=$(classify)
+BASE_HASH=$(printf '%s' "$BASE_JSON" | jq -r .staged_diff_hash)
+write_gate L1 true approve 0 false false "$BASE_HASH"
+check "M1A-0 baseline gate → ask" "ask|0" "$(gate 'git commit -m "msg"')"
+
+# --- 汚染素材 ---
+DECOY="$TMP/decoy"
+git init -q "$DECOY"
+( cd "$DECOY" && git config user.email t@e && git config user.name t && git config commit.gpgsign false \
+  && printf 'd1\n' > d.txt && git add d.txt && git commit -qm d && printf 'd2\n' > d.txt && git add d.txt )
+printf 'zz.txt\naa.txt\nf.c\n' > "$TMP/ord"
+EVILHOME="$TMP/evilhome"; mkdir -p "$EVILHOME"
+printf '[diff]\n\torderFile = %s\n\tnoprefix = true\n\talgorithm = histogram\n' "$TMP/ord" > "$EVILHOME/.gitconfig"
+mkdir -p "$TMP/evilxdg/git"; cp "$EVILHOME/.gitconfig" "$TMP/evilxdg/git/config"
+cp "$EVILHOME/.gitconfig" "$TMP/evil.cfg"
+
+# --- A-1: 環境採取層（fake git wrapper） ---
+mkdir -p "$TMP/fakebin"
+cat > "$TMP/fakebin/git" <<M1AEOF
+#!/bin/sh
+{ echo "=== CALL ==="; env; } >> "$TMP/envdump" 2>/dev/null
+exec "$REAL_GIT" "\$@"
+M1AEOF
+chmod +x "$TMP/fakebin/git"
+POLLUTE_ALL="GIT_DIR=$DECOY/.git GIT_WORK_TREE=$DECOY GIT_INDEX_FILE=$DECOY/.git/index \
+GIT_COMMON_DIR=$DECOY/.git GIT_OBJECT_DIRECTORY=$DECOY/.git/objects \
+GIT_ALTERNATE_OBJECT_DIRECTORIES=$DECOY/.git/objects GIT_NAMESPACE=evilns \
+GIT_CEILING_DIRECTORIES=$TMP GIT_EXTERNAL_DIFF=/bin/false GIT_DIFF_OPTS=-u10 \
+GIT_LITERAL_PATHSPECS=1 GIT_GLOB_PATHSPECS=1 GIT_NOGLOB_PATHSPECS=1 GIT_ICASE_PATHSPECS=1 \
+GIT_PAGER=/bin/false HOME=$EVILHOME XDG_CONFIG_HOME=$TMP/evilxdg GIT_CONFIG=$TMP/evil.cfg \
+GIT_ATTR_SOURCE=HEAD GIT_DISCOVERY_ACROSS_FILESYSTEM=0"
+: > "$TMP/envdump"
+A1_OUT=$(env $POLLUTE_ALL "GIT_CONFIG_PARAMETERS='diff.algorithm=histogram'" \
+  PATH="$TMP/fakebin:$PATH" sh .claude/hooks/classify-risk.sh)
+A1_BAD=$(grep -v '^=== CALL ===$' "$TMP/envdump" | cut -d= -f1 | sort -u \
+  | grep -vE '^(PATH|LC_ALL|GIT_CONFIG_NOSYSTEM|GIT_CONFIG_SYSTEM|GIT_CONFIG_GLOBAL|PWD|SHLVL|_|OLDPWD)$' || true)
+check "M1A-A1a 許可外の変数が子プロセスへ渡らない" "" "$A1_BAD"
+EXPECT_PATH="$TMP/fakebin:$PATH"
+A1_PATH_BAD=$(grep '^PATH=' "$TMP/envdump" | sort -u | grep -vF "PATH=$EXPECT_PATH" || true)
+check "M1A-A1b PATH が SANITIZED_PATH 固定値" "" "$A1_PATH_BAD"
+A1_VAL_BAD=$(grep -E '^(LC_ALL|GIT_CONFIG_NOSYSTEM|GIT_CONFIG_SYSTEM|GIT_CONFIG_GLOBAL)=' "$TMP/envdump" | sort -u \
+  | grep -vE '^(LC_ALL=C|GIT_CONFIG_NOSYSTEM=1|GIT_CONFIG_SYSTEM=/dev/null|GIT_CONFIG_GLOBAL=/dev/null)$' || true)
+check "M1A-A1b 許可変数が契約固定値" "" "$A1_VAL_BAD"
+check "M1A-A1 汚染下でも classify 出力が baseline と一致" "$BASE_JSON" "$A1_OUT"
+: > "$TMP/envdump"
+A1C_OUT=$(env GIT_CONFIG_SYSTEM="$TMP/evil.cfg" GIT_CONFIG_GLOBAL="$TMP/evil.cfg" GIT_CONFIG_NOSYSTEM=0 \
+  PATH="$TMP/fakebin:$PATH" sh .claude/hooks/classify-risk.sh)
+A1C_BAD=$(grep -E '^(GIT_CONFIG_NOSYSTEM|GIT_CONFIG_SYSTEM|GIT_CONFIG_GLOBAL)=' "$TMP/envdump" | sort -u \
+  | grep -vE '^(GIT_CONFIG_NOSYSTEM=1|GIT_CONFIG_SYSTEM=/dev/null|GIT_CONFIG_GLOBAL=/dev/null)$' || true)
+check "M1A-A1c 敵対 config 変数は固定値で上書きされる" "" "$A1C_BAD"
+check "M1A-A1c 敵対 config 変数下でも classify 一致" "$BASE_JSON" "$A1C_OUT"
+: > "$TMP/envdump"
+G_A1=$(jq -n --arg c 'git commit -m "msg"' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | env $POLLUTE_ALL PATH="$TMP/fakebin:$PATH" sh .claude/hooks/commit-review-gate.sh 2>/dev/null \
+  | jq -r '.hookSpecificOutput.permissionDecision // "none"')
+check "M1A-A1 gate も汚染下で ask（採取込み）" "ask" "$G_A1"
+
+# --- A-2: 挙動層（22変数 個別＋組合せ3） ---
+gate_env1() { # $1=NAME=VALUE $2=command → decision|rc
+  jq -n --arg c "$2" '{tool_name:"Bash",tool_input:{command:$c}}' \
+    | env "$1" sh .claude/hooks/commit-review-gate.sh > "$TMP/gate.out" 2>/dev/null
+  GE_RC=$?
+  GE_D=$(jq -r '.hookSpecificOutput.permissionDecision // "bad_json"' "$TMP/gate.out" 2>/dev/null || echo bad_json)
+  [ -s "$TMP/gate.out" ] || GE_D=none
+  printf '%s|%s' "$GE_D" "$GE_RC"
+}
+while IFS= read -r kv; do
+  [ -n "$kv" ] || continue
+  A2_OUT=$(env "$kv" sh .claude/hooks/classify-risk.sh)
+  check "M1A-A2 classify 不変: ${kv%%=*}" "$BASE_JSON" "$A2_OUT"
+  check "M1A-A2 gate 不変: ${kv%%=*}" "ask|0" "$(gate_env1 "$kv" 'git commit -m "msg"')"
+done <<M1AEOF
+GIT_DIR=$DECOY/.git
+GIT_WORK_TREE=$DECOY
+GIT_INDEX_FILE=$DECOY/.git/index
+GIT_COMMON_DIR=$DECOY/.git
+GIT_OBJECT_DIRECTORY=$DECOY/.git/objects
+GIT_ALTERNATE_OBJECT_DIRECTORIES=$DECOY/.git/objects
+GIT_NAMESPACE=evilns
+GIT_CEILING_DIRECTORIES=$TMP
+GIT_EXTERNAL_DIFF=/bin/false
+GIT_DIFF_OPTS=-u10
+GIT_LITERAL_PATHSPECS=1
+GIT_GLOB_PATHSPECS=1
+GIT_NOGLOB_PATHSPECS=1
+GIT_ICASE_PATHSPECS=1
+GIT_PAGER=/bin/false
+HOME=$EVILHOME
+XDG_CONFIG_HOME=$TMP/evilxdg
+GIT_CONFIG=$TMP/evil.cfg
+GIT_CONFIG_PARAMETERS='diff.algorithm=histogram'
+GIT_ATTR_SOURCE=HEAD
+GIT_DISCOVERY_ACROSS_FILESYSTEM=0
+M1AEOF
+A2_CNT=$(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.algorithm GIT_CONFIG_VALUE_0=histogram \
+  sh .claude/hooks/classify-risk.sh)
+check "M1A-A2 classify 不変: GIT_CONFIG_COUNT/KEY_0/VALUE_0" "$BASE_JSON" "$A2_CNT"
+A2_C1=$(env GIT_DIR="$DECOY/.git" GIT_WORK_TREE="$DECOY" GIT_INDEX_FILE="$DECOY/.git/index" \
+  sh .claude/hooks/classify-risk.sh)
+check "M1A-A2 組合せ1（別 repo/index 一式）" "$BASE_JSON" "$A2_C1"
+A2_C2=$(env HOME="$EVILHOME" XDG_CONFIG_HOME="$TMP/evilxdg" GIT_CONFIG_GLOBAL="$TMP/evil.cfg" \
+  sh .claude/hooks/classify-risk.sh)
+check "M1A-A2 組合せ2（config 経路一式）" "$BASE_JSON" "$A2_C2"
+A2_C3=$(env GIT_LITERAL_PATHSPECS=1 GIT_GLOB_PATHSPECS=1 GIT_NOGLOB_PATHSPECS=1 GIT_ICASE_PATHSPECS=1 \
+  sh .claude/hooks/classify-risk.sh)
+check "M1A-A2 組合せ3（pathspec 系4変数）" "$BASE_JSON" "$A2_C3"
+
+# --- A-3: positive control（v1 相当の生コマンドで汚染の実効性を実証） ---
+V1_HASH_CMD() { "$REAL_GIT" -C "$REPO" -c core.quotepath=false -c diff.algorithm=myers \
+  diff --cached --no-renames --no-color --no-ext-diff --no-textconv --unified=3; }
+PC0=$(V1_HASH_CMD | "$REAL_GIT" hash-object --stdin)
+PC1=$(env GIT_INDEX_FILE="$DECOY/.git/index" "$REAL_GIT" -C "$REPO" diff --cached --numstat 2>&1; echo "rc=$?")
+PC1_CLEAN=$("$REAL_GIT" -C "$REPO" diff --cached --numstat 2>&1; echo "rc=$?")
+if [ "$PC1" != "$PC1_CLEAN" ]; then ok "M1A-A3 PC1 GIT_INDEX_FILE は生 git に実効"; else bad "M1A-A3 PC1 GIT_INDEX_FILE は生 git に実効"; fi
+PC2=$(env GIT_DIFF_OPTS=-u0 sh -c 'exec "$0" -C "$1" -c core.quotepath=false -c diff.algorithm=myers diff --cached --no-renames --no-color --no-ext-diff --no-textconv --unified=3' "$REAL_GIT" "$REPO" | "$REAL_GIT" hash-object --stdin)
+if [ "$PC2" != "$PC0" ]; then ok "M1A-A3 PC2 GIT_DIFF_OPTS は CLI -U に優先（生 git）"; else bad "M1A-A3 PC2 GIT_DIFF_OPTS は CLI -U に優先（生 git）"; fi
+PC3A=$("$REAL_GIT" -C "$REPO" diff --cached --name-only -- ':(top,glob)*.c' | grep -c . || true)
+PC3B=$(env GIT_LITERAL_PATHSPECS=1 "$REAL_GIT" -C "$REPO" diff --cached --name-only -- ':(top,glob)*.c' 2>/dev/null | grep -c . || true)
+if [ "$PC3A" != "$PC3B" ]; then ok "M1A-A3 PC3 GIT_LITERAL_PATHSPECS は pathspec magic を無効化（生 git）"; else bad "M1A-A3 PC3 GIT_LITERAL_PATHSPECS は pathspec magic を無効化（生 git）"; fi
+PC4=$(env HOME="$EVILHOME" sh -c 'exec "$0" -C "$1" -c core.quotepath=false -c diff.algorithm=myers diff --cached --no-renames --no-color --no-ext-diff --no-textconv --unified=3' "$REAL_GIT" "$REPO" | "$REAL_GIT" hash-object --stdin)
+if [ "$PC4" != "$PC0" ]; then ok "M1A-A3 PC4 global config(orderFile/noprefix/algorithm) は v1 相当コマンドに実効"; else bad "M1A-A3 PC4 global config は v1 相当コマンドに実効"; fi
+PC5=$(env GIT_EXTERNAL_DIFF=/bin/false sh -c 'exec "$0" -C "$1" -c core.quotepath=false -c diff.algorithm=myers diff --cached --no-renames --no-color --no-ext-diff --no-textconv --unified=3' "$REAL_GIT" "$REPO" | "$REAL_GIT" hash-object --stdin)
+check "M1A-A3 PC5 GIT_EXTERNAL_DIFF は v1 既存フラグで免疫（環境採取が assertion）" "$PC0" "$PC5"
+
+# --- B-1: HEAD 版との bit-for-bit（stdout/stderr/exit code） ---
+V1P="$TMP/v1proj"
+mkdir -p "$V1P/.claude/hooks"
+git -C "$KIT_ROOT" show HEAD:.claude/hooks/classify-risk.sh > "$V1P/.claude/hooks/classify-risk.sh" 2>/dev/null || KIT_HEAD_HAS_V1=0
+git -C "$KIT_ROOT" show HEAD:.claude/hooks/commit-review-gate.sh > "$V1P/.claude/hooks/commit-review-gate.sh" 2>/dev/null || KIT_HEAD_HAS_V1=0
+cp .claude/risk-rules.json "$V1P/.claude/risk-rules.json"
+printf '{}\n' > "$V1P/.claude/settings.json"
+if [ "$KIT_HEAD_HAS_V1" -eq 1 ]; then
+  snap() { find "$REPO" -path "$REPO/.git" -prune -o -type f -print 2>/dev/null | sort \
+    | while IFS= read -r f; do printf '%s ' "$f"; stat -c '%s %Y' "$f"; done; }
+  SNAP_BEFORE=$(snap)
+  sh .claude/hooks/classify-risk.sh > "$TMP/b1n.out" 2> "$TMP/b1n.err"; B1N_RC=$?
+  sh "$V1P/.claude/hooks/classify-risk.sh" > "$TMP/b1o.out" 2> "$TMP/b1o.err"; B1O_RC=$?
+  if cmp -s "$TMP/b1n.out" "$TMP/b1o.out"; then ok "M1A-B1 classify stdout bit 同一"; else bad "M1A-B1 classify stdout bit 同一"; fi
+  if cmp -s "$TMP/b1n.err" "$TMP/b1o.err"; then ok "M1A-B1 classify stderr bit 同一"; else bad "M1A-B1 classify stderr bit 同一"; fi
+  check "M1A-B1 classify exit code 一致" "$B1O_RC" "$B1N_RC"
+  b1gate() { # $1=projdir $2=script $3=cmd $4=outprefix
+    jq -n --arg c "$3" '{tool_name:"Bash",tool_input:{command:$c}}' \
+      | CLAUDE_PROJECT_DIR="$1" sh "$2" > "$TMP/$4.out" 2> "$TMP/$4.err"
+    echo $?
+  }
+  for gc in 'git status' 'git push origin main' 'git commit -m "msg"' 'git commit -am "x"' 'git push --force'; do
+    RC_N=$(b1gate "$REPO" .claude/hooks/commit-review-gate.sh "$gc" b1gn)
+    RC_O=$(b1gate "$V1P" "$V1P/.claude/hooks/commit-review-gate.sh" "$gc" b1go)
+    if cmp -s "$TMP/b1gn.out" "$TMP/b1go.out"; then ok "M1A-B1 gate stdout bit 同一: $gc"; else bad "M1A-B1 gate stdout bit 同一: $gc"; fi
+    if cmp -s "$TMP/b1gn.err" "$TMP/b1go.err"; then ok "M1A-B1 gate stderr bit 同一: $gc"; else bad "M1A-B1 gate stderr bit 同一: $gc"; fi
+    check "M1A-B1 gate exit 一致: $gc" "$RC_O" "$RC_N"
+  done
+  SNAP_AFTER=$(snap)
+  check "M1A-B1 実行前後で worktree に生成・更新ファイルなし" "$SNAP_BEFORE" "$SNAP_AFTER"
+else
+  ok "M1A-B1 SKIP（HEAD に v1 スクリプトなし — cutover 後は自明に同一）"
+fi
+# --- B-2: UTF-8 locale 下の新旧比較 ---
+if [ "$KIT_HEAD_HAS_V1" -eq 1 ] && locale -a 2>/dev/null | grep -qiE '^C\.(utf8|utf-8)$'; then
+  B2N=$(env LC_ALL=C.UTF-8 sh .claude/hooks/classify-risk.sh)
+  B2O=$(env LC_ALL=C.UTF-8 sh "$V1P/.claude/hooks/classify-risk.sh")
+  check "M1A-B2 UTF-8 locale 下でも新旧一致" "$B2O" "$B2N"
+else
+  ok "M1A-B2 SKIP（C.UTF-8 locale なし or HEAD v1 なし — 差分記録なし）"
+fi
+
+# --- C2: git／env 不在・非絶対解決 ---
+TOOLBIN="$TMP/toolbin"; mkdir -p "$TOOLBIN"
+for t in jq grep awk sed cut cat sh env printf head tail sort uniq stat find cmp; do
+  p=$(command -v "$t" 2>/dev/null) && [ -n "$p" ] && ln -sf "$p" "$TOOLBIN/$t"
+done
+NOGIT_OUT=$(env PATH="$TOOLBIN" sh .claude/hooks/classify-risk.sh); NOGIT_RC=$?
+check "M1A-C2 git 不在 → classify exit 1" "1" "$NOGIT_RC"
+check "M1A-C2 git 不在 → ok:false" "false" "$(printf '%s' "$NOGIT_OUT" | jq -r .ok)"
+check "M1A-C2 git 不在 → 非Git(ls) 素通し" "none|0" "$(env PATH="$TOOLBIN" sh -c 'jq -n --arg c "ls -la" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | sh .claude/hooks/commit-review-gate.sh >/dev/null 2>&1 && echo none; echo 0' | tr '\n' '|' | sed 's/|$//')"
+NG_D=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | env PATH="$TOOLBIN" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "none"')
+check "M1A-C2 git 不在 → Git スコープ deny" "deny" "$NG_D"
+TOOLBIN2="$TMP/toolbin2"; mkdir -p "$TOOLBIN2"
+for t in jq grep awk sed cut cat sh git printf head tail sort uniq stat find cmp; do
+  p=$(command -v "$t" 2>/dev/null) && [ -n "$p" ] && ln -sf "$p" "$TOOLBIN2/$t"
+done
+NOENV_OUT=$(env PATH="$TOOLBIN2" sh .claude/hooks/classify-risk.sh); NOENV_RC=$?
+check "M1A-C2 env 不在 → classify exit 1" "1" "$NOENV_RC"
+NE_D=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | env PATH="$TOOLBIN2" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "none"')
+check "M1A-C2 env 不在 → Git スコープ deny" "deny" "$NE_D"
+mkdir -p relbin
+printf '#!/bin/sh\nexec %s "$@"\n' "$REAL_GIT" > relbin/git
+chmod +x relbin/git
+RELABS_OUT=$(env PATH="relbin:$PATH" sh .claude/hooks/classify-risk.sh); RELABS_RC=$?
+check "M1A-C2 git 非絶対解決 → classify exit 1" "1" "$RELABS_RC"
+RELABS_MSG=$(printf '%s' "$RELABS_OUT" | jq -r .error)
+case "$RELABS_MSG" in *絶対パス*) ok "M1A-C2 非絶対解決の理由文言" ;; *) bad "M1A-C2 非絶対解決の理由文言 ($RELABS_MSG)" ;; esac
+RA_D=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | env PATH="relbin:$PATH" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "none"')
+check "M1A-C2 git 非絶対解決 → gate deny" "deny" "$RA_D"
+rm -rf relbin
+
+# --- C3: 静的監査（本番 hook 2ファイル・実起動14箇所のみ対象） ---
+C3_CLS=$(grep -c 'git_s ' .claude/hooks/classify-risk.sh)
+C3_GATE=$(grep -c 'git_s ' .claude/hooks/commit-review-gate.sh)
+check "M1A-C3 git_s 呼び出し数 classify=9" "9" "$C3_CLS"
+check "M1A-C3 git_s 呼び出し数 gate=5" "5" "$C3_GATE"
+C3_BARE=$(grep -nE '(\$\(git[[:space:]])|(\|[[:space:]]*git[[:space:]])|(^[[:space:]]*git[[:space:]])' \
+  .claude/hooks/classify-risk.sh .claude/hooks/commit-review-gate.sh || true)
+check "M1A-C3 裸 git 起動なし" "" "$C3_BARE"
+
+# --- C4: v1 出力キー集合の維持（M1-B 以降の不在） ---
+C4_KEYS=$(printf '%s' "$BASE_JSON" | jq -r 'keys_unsorted | sort | join(",")')
+check "M1A-C4 出力キー集合が v1 と同一" \
+  "changed_files,changed_lines,doc_only,ok,protected_paths,reasons,risk_floor,staged_diff_hash" "$C4_KEYS"
+
+# --- C5: git_s 定義のドリフト検出 ---
+sed -n '/^git_s() {/,/^}/p' .claude/hooks/classify-risk.sh > "$TMP/gs_a"
+sed -n '/^git_s() {/,/^}/p' .claude/hooks/commit-review-gate.sh > "$TMP/gs_b"
+if cmp -s "$TMP/gs_a" "$TMP/gs_b"; then ok "M1A-C5 git_s 定義が両スクリプトで一致"; else bad "M1A-C5 git_s 定義が両スクリプトで一致"; fi
+
+# --- C6: 構文 ---
+sh -n .claude/hooks/classify-risk.sh && ok "M1A-C6 classify sh -n" || bad "M1A-C6 classify sh -n"
+sh -n .claude/hooks/commit-review-gate.sh && ok "M1A-C6 gate sh -n" || bad "M1A-C6 gate sh -n"
+
+# --- C7: 異常 local config・driver algorithm・rename fixture（出力単位で個別検証） ---
+BASE_FILES=$(printf '%s' "$BASE_JSON" | jq -r .changed_files)
+BASE_LINES=$(printf '%s' "$BASE_JSON" | jq -r .changed_lines)
+BASE_FLOOR=$(printf '%s' "$BASE_JSON" | jq -r .risk_floor)
+git config diff.orderFile "$TMP/ord"
+git config diff.noprefix true
+git config diff.algorithm histogram
+C7_JSON=$(classify)
+check "M1A-C7 #5 changed_files 不変（異常 local config）" "$BASE_FILES" "$(printf '%s' "$C7_JSON" | jq -r .changed_files)"
+check "M1A-C7 #5 changed_lines 不変（異常 local config）" "$BASE_LINES" "$(printf '%s' "$C7_JSON" | jq -r .changed_lines)"
+check "M1A-C7 #5 risk_floor 不変（異常 local config）" "$BASE_FLOOR" "$(printf '%s' "$C7_JSON" | jq -r .risk_floor)"
+check "M1A-C7 #9 staged_diff_hash 不変（異常 local config）" "$BASE_HASH" "$(printf '%s' "$C7_JSON" | jq -r .staged_diff_hash)"
+git config --unset diff.orderFile; git config --unset diff.noprefix; git config --unset diff.algorithm
+# driver algorithm fixture（positive control → 修正版で固定）
+printf '*.c diff=drv\n' > .gitattributes
+git config diff.drv.algorithm histogram
+PC_DRV=$(V1_HASH_CMD | "$REAL_GIT" hash-object --stdin)
+if [ "$PC_DRV" != "$PC0" ]; then ok "M1A-C7 driver algorithm は v1 相当コマンド(-c myers)を上書き（positive control）"; else bad "M1A-C7 driver algorithm positive control"; fi
+C7D_JSON=$(classify)
+check "M1A-C7 #9 driver algorithm 下でも staged_diff_hash 不変" "$BASE_HASH" "$(printf '%s' "$C7D_JSON" | jq -r .staged_diff_hash)"
+rm -f .gitattributes; git config --unset diff.drv.algorithm
+# rename fixture（#8 秘密情報判定）
+reset_stage
+printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' > s.txt
+git add s.txt && git commit -qm m1a-sec
+git mv s.txt r.txt
+RN_BASE=$(classify)
+git config diff.renames true
+PC_RN_OFF=$("$REAL_GIT" -C "$REPO" -c diff.renames=true diff --cached --no-color --no-ext-diff --no-textconv --unified=0 | grep -c '^+key' || true)
+PC_RN_ON=$("$REAL_GIT" -C "$REPO" -c diff.renames=true diff --cached --no-renames --no-color --no-ext-diff --no-textconv --unified=0 | grep -c '^+key' || true)
+check "M1A-C7 rename positive control（--no-renames なしでは内容行が現れない）" "0" "$PC_RN_OFF"
+check "M1A-C7 rename 対照（--no-renames ありで内容行が現れる）" "1" "$PC_RN_ON"
+RN_JSON=$(classify)
+check "M1A-C7 #8 diff.renames=true 下でも classify 全体一致" "$RN_BASE" "$RN_JSON"
+check "M1A-C7 #8 純粋 rename の秘密情報を検出（L3）" "L3" "$(printf '%s' "$RN_JSON" | jq -r .risk_floor)"
+git config --unset diff.renames
+reset_stage
+
 # ============ 結果 ============
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
