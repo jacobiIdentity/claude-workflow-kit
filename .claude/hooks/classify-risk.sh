@@ -58,6 +58,64 @@ for marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply;
   [ -e "$GITDIR/$marker" ] && fail "マージ／リベース等の進行中はリスク判定できません（$marker を検出）"
 done
 
+# --- M1-B: canonical identity 用の一時ファイル（producer/consumer を単独検査するため
+#     シェル変数・未検査 pipeline を経由しない。EXIT trap でクリーンアップ） ---
+MANIFEST_TMP=""
+POLICY_TMP=""
+trap 'rm -f "$MANIFEST_TMP" "$POLICY_TMP"' EXIT
+
+# --- M1-B: policy set の存在・stage 0 一意性・mode の fail-closed 検証 ---
+# 期待 mode: hooks 2本 = 100755 / 他6本 = 100644（M1-A checkpoint commit 時点の実測に一致）
+policy_expected_mode() {
+  case "$1" in
+    .claude/hooks/classify-risk.sh|.claude/hooks/commit-review-gate.sh) printf '100755\n' ;;
+    *) printf '100644\n' ;;
+  esac
+}
+POLICY_SET='.claude/hooks/classify-risk.sh
+.claude/hooks/commit-review-gate.sh
+.claude/risk-rules.json
+.claude/skills/review-pack/SKILL.md
+.claude/agents/reviewer-lite.md
+.claude/agents/reviewer-full.md
+.claude/agents/verifier.md
+.claude/settings.json'
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  P_LS=$(git_s -C "$ROOT" ls-files -s -- "$p" 2>/dev/null)
+  P_N=$(printf '%s\n' "$P_LS" | grep -c .)
+  [ "$P_N" -eq 0 ] && fail "policy set 検証失敗: $p（欠損）"
+  [ "$P_N" -eq 1 ] || fail "policy set 検証失敗: $p（重複）"
+  P_MODE=$(printf '%s\n' "$P_LS" | awk '{print $1}')
+  P_STAGE=$(printf '%s\n' "$P_LS" | awk '{print $3}')
+  [ "$P_STAGE" = "0" ] || fail "policy set 検証失敗: $p（重複、stage $P_STAGE）"
+  P_EXPMODE=$(policy_expected_mode "$p")
+  [ "$P_MODE" = "$P_EXPMODE" ] || fail "policy set 検証失敗: $p（不正mode $P_MODE）"
+done <<EOF
+$POLICY_SET
+EOF
+
+# --- M1-B: policy_version（policy set 8ファイルの index 内容から算出） ---
+POLICY_TMP=$(mktemp "${TMPDIR:-/tmp}/classify-policy.XXXXXX") || fail "一時ファイルを作成できません"
+git_s -C "$ROOT" ls-files -s -z -- \
+  .claude/hooks/classify-risk.sh \
+  .claude/hooks/commit-review-gate.sh \
+  .claude/risk-rules.json \
+  .claude/skills/review-pack/SKILL.md \
+  .claude/agents/reviewer-lite.md \
+  .claude/agents/reviewer-full.md \
+  .claude/agents/verifier.md \
+  .claude/settings.json > "$POLICY_TMP" 2>/dev/null
+POLICY_PRC=$?
+[ "$POLICY_PRC" -eq 0 ] || fail "policy manifest の生成に失敗しました"
+[ -s "$POLICY_TMP" ] || fail "policy manifest が空です"
+POLICY_VERSION=$(git_s -C "$ROOT" hash-object --stdin < "$POLICY_TMP" 2>/dev/null)
+POLICY_CRC=$?
+[ "$POLICY_CRC" -eq 0 ] && [ -n "$POLICY_VERSION" ] || fail "policy_version のハッシュ計算に失敗しました"
+case "$POLICY_VERSION" in
+  *[!0-9a-f]*) fail "policy_version が16進文字列ではありません" ;;
+esac
+
 # --- staged の変更量（--no-renames で rename 検出設定差を排除。rename は削除+追加で全行カウント＝保守側） ---
 NUMSTAT=$(git_s -C "$ROOT" -c core.bigFileThreshold=512m diff --cached --no-renames \
   --no-ext-diff --no-textconv --diff-algorithm=myers --ignore-submodules=none --numstat 2>/dev/null) \
@@ -159,6 +217,32 @@ HASH=$(printf '%s\n' "$STAGED_DIFF" | git_s -C "$ROOT" hash-object --stdin 2>/de
   || fail "ハッシュ計算に失敗しました"
 [ -n "$HASH" ] || fail "ハッシュ計算の結果が空です"
 
+# --- M1-B: Review Subject manifest（review_subject_hash。core.abbrev・diff 表示設定に非依存。
+#     .claude/review-ledger/** を発生源から除外。producer/consumer を単独検査） ---
+MANIFEST_TMP=$(mktemp "${TMPDIR:-/tmp}/classify-subject.XXXXXX") || fail "一時ファイルを作成できません"
+git_s -C "$ROOT" -c core.quotepath=false diff --cached --raw -z \
+    --no-abbrev --no-renames --no-ext-diff --no-textconv \
+    --no-relative --ignore-submodules=none -O/dev/null \
+    -- . ':(exclude,top).claude/review-ledger' > "$MANIFEST_TMP" 2>/dev/null
+SUBJECT_PRC=$?
+[ "$SUBJECT_PRC" -eq 0 ] || fail "review subject manifest の生成に失敗しました"
+[ -s "$MANIFEST_TMP" ] || fail "review subject が空です（.claude/review-ledger を除く staged 変更がありません）"
+REVIEW_SUBJECT_HASH=$(git_s -C "$ROOT" hash-object --stdin < "$MANIFEST_TMP" 2>/dev/null)
+SUBJECT_CRC=$?
+[ "$SUBJECT_CRC" -eq 0 ] && [ -n "$REVIEW_SUBJECT_HASH" ] || fail "review_subject_hash のハッシュ計算に失敗しました"
+case "$REVIEW_SUBJECT_HASH" in
+  *[!0-9a-f]*) fail "review_subject_hash が16進文字列ではありません" ;;
+esac
+
+# --- M1-B: base_head / object_format / execution_root ---
+BASE_HEAD=$(git_s -C "$ROOT" rev-parse HEAD 2>/dev/null)
+BASE_HEAD_RC=$?
+[ "$BASE_HEAD_RC" -eq 0 ] && [ -n "$BASE_HEAD" ] || fail "base_head の取得に失敗しました"
+OBJECT_FORMAT=$(git_s -C "$ROOT" rev-parse --show-object-format 2>/dev/null)
+OBJFMT_RC=$?
+[ "$OBJFMT_RC" -eq 0 ] && [ -n "$OBJECT_FORMAT" ] || fail "object_format の取得に失敗しました"
+EXECUTION_ROOT="$ROOT"
+
 jq -n \
   --arg floor "$FLOOR" \
   --argjson reasons "$REASONS" \
@@ -167,6 +251,13 @@ jq -n \
   --argjson protected "$PROTECTED" \
   --argjson doc_only "$DOC_ONLY" \
   --arg hash "$HASH" \
+  --arg policy_version "$POLICY_VERSION" \
+  --arg review_subject_hash "$REVIEW_SUBJECT_HASH" \
+  --arg base_head "$BASE_HEAD" \
+  --arg object_format "$OBJECT_FORMAT" \
+  --arg execution_root "$EXECUTION_ROOT" \
   '{ok: true, risk_floor: $floor, reasons: $reasons, changed_files: $files,
     changed_lines: $lines, protected_paths: $protected, doc_only: $doc_only,
-    staged_diff_hash: $hash}'
+    staged_diff_hash: $hash, policy_version: $policy_version,
+    review_subject_hash: $review_subject_hash, base_head: $base_head,
+    object_format: $object_format, execution_root: $execution_root}'

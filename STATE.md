@@ -23,13 +23,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: M1-A-sanitized-git-env
+- phase: M1-B-canonical-identity
 - risk_floor: L2
 - risk_final: L2
 - verifier_passed: true
 - reviewer_verdict: approve_with_changes
-- unresolved_issues: fresh-context 独立レビューの non-blocking 5件（B-1 の stat -c は macOS で弱い / C.UTF-8 なし環境で B-2 SKIP / gate 側の一部 env ケースと理由文字列の比較粒度が限定的 / B-1 代表系列に G2 なし / 裸 git 監査 grep は近似的）＋reviewer-full 指摘の次サイクル手直し候補（M1A-C2 の ls 素通し検査が exit code を実検証していない / B-1 は commit 後に自明成立化）・非デフォルト config 環境ではハッシュ非連続のため commit 後に証跡再生成が必要
-- next_resume: M1-A checkpoint commit のユーザー承認待ち（gate の ask ＋チャット承認。承認後は commit のみ・push/M1-B は別認可）。承認されない場合は staged 解除の指示を待つ
+- unresolved_issues: reviewer-full 初回指摘（critical 0件・warnings 3件・非blocking）＝①policy set 8ファイル固定リスト（classify-risk.sh 内）の将来的なファイル移動・改名時のドリフト防止策が手動同期依存（README等への結合関係明記なし） ②本変更により全staged変更で8ファイルの存在・一意性・mode検証を要求する挙動変化（plan §4f・§9判断事項①に明記済みの意図した変更） ③plan §6のF15（既存回帰）に対応する明示ラベル節がrun-gate-tests.sh内に独立して存在しない（既存270＋M1A105ケースの実行で機能的には充足）。加えてReviewer自身はread-only制約により`sh tests/run-gate-tests.sh`を独立再実行できず、326 passed/0 failedの実測はメインエージェント提供値のコード整合確認（git_s呼び出し数16件・出力キー13件一致等）でのみ裏付け。plan §9判断事項①②（policy不完全repo fail化・ledger-only fail化の受容／F10 SKip許容）はB1/B2独立監査でのCLOSED判定・stage→review-pack YES判定として人間により既に確認済み（F10はSKIPせず実際に改行パスで実装・検証済み）。／最終Reviewer（1回目）はSTATE.mdのフェーズ一覧・次に再開すべき地点にM1-B作業の事前確定受け入れ基準が見当たらず、既存のPR-review-final-doc-syncフェーズの受け入れ基準（README.md/STATE.mdの2ファイルのみ変更）と本diffが矛盾するとしてreject（critical 1件・needs_human_review: true）。これに対し2026-08-01、人間が明示判断で解消: 本M1-B作業は承認済みplan（SHA-256 6f3714bba8bd59ba939853b1b07567e9b6927c6219d456b8c83e9704205b0fcc）に基づき別途明示認可されたスコープであり、B1（4件のテスト期待値変更）は人間が限定的に追認済み、B2（F5動的OID検証追加）を含む更新版は独立閉鎖監査で「VERDICT: PASS — B1: CLOSED — B2: CLOSED — stage→/review-pack: YES」の判定を受領済み。STATE.mdに残るPR-review-final-doc-syncの再開地点は本M1-B認可より前のものであり、本作業を禁止する最新指示としては扱わない。Reviewerのreject指摘はコード上のblocking defectではなくtracking/provenance上の指摘として人間判断で解消（この判断に基づきフェーズ一覧・受け入れ基準の後付けは行わず、本review-gate-stateブロックのみ更新）。最終Reviewer（2回目・人間ratification込み）を再実行して確認中
+- next_resume: 最終Reviewer（人間ratification込み・2回目）の結果を確認し、READY/BLOCKED/ESCALATEDを再判定→READYの場合のみreview-gate証跡生成→承認パケット提示で停止。commitはユーザーの別途明示承認後にのみ実行（本ラウンドでは未認可）
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル
