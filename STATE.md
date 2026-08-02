@@ -23,7 +23,7 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: STATE-sync-resume-pointer
+- phase: STATE-fix-B1-M1C-phase-status
 - risk_floor: L0
 - risk_final: L0
 - verifier_passed: true
@@ -112,7 +112,7 @@
     4. 変更ファイルが README.md / STATE.md の2件のみで、stage も同2件の明示 `git add README.md STATE.md` のみ（`git add .` / `git add -A` 不使用。unstaged / untracked が残らない）。`risk_final` は「README の保証範囲と残存回避経路を変更するため」機械的下限にかかわらず L2 へ引き上げ、Reviewer は reviewer-full を使用する。commit・push・PR 本文変更・merge は行わず、/review-pack のユーザー手動起動待ちで停止する
 - [x] Phase 7: 承認待ち停止 → commit → private staging へ push（2026-07-22 完了: /review-pack READY・証跡生成 → ユーザー承認により commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498（親=公開版 main 2752e4a・12ファイル・単一行メッセージ）→ ユーザー承認により staging（jacobiidentity/claude-workflow-kit-staging-private・private 確認済み）の feat/review-governance-gate-v1 へ push（--set-upstream・単一 ref・force なし）。local=remote SHA 一致・staging/main（bb248e6）不変・origin/main（2752e4a）不変・origin に同名 branch 未作成を確認。PR・merge・tag・追加 commit なし）
   - 受け入れ基準: 変更ファイル一覧・diff 概要・STATE.md 更新内容・受け入れ基準ごとの結果・実行/未実施テスト・Verifier 結果・独立レビュー結果（critical findings 原文）・残存リスク・未解決事項・ロールバック方法・公開版 remote 未送信の確認・commit 予定メッセージ・push 予定先（private staging remote / feat/review-governance-gate-v1）を提示して commit せず停止する。ユーザーの明示承認後にのみ commit し、private staging の同名ブランチへ push して SHA を報告する。承認後も main 更新・公開版 push・PR・merge・force push・tag・設定変更は行わない
-- [~] M1-C: commit invocation境界の恒久化（I-C4a）＋ M1-A non-blocking findings（tests側5件）の解消（plan Rev.2 `/root/.claude/plans/m1-c-invocation-fixtures.md`。実装認可 2026-08-01・commit/push/PR/Issue操作は認可外。変更対象は tests/run-gate-tests.sh（executor）・STATE.md・.claude/success-log.md（メイン）の3件のみ。parser・hooks・設定・Skill・agentsは無変更）**→ Step 6まで完了（2026-08-01）: M1C節19ケース＋findings 5件修正＝352 passed/0 failed・verifier passed: true（1回目）・受け入れ基準9項目全充足。残: Step 7＝ユーザーの明示的`git add` 3件→`/review-pack`→人間承認（フェーズ完了は人間承認をもって確定）**
+- [x] M1-C: commit invocation境界の恒久化（I-C4a）＋ M1-A non-blocking findings（tests側5件）の解消（plan Rev.2 `/root/.claude/plans/m1-c-invocation-fixtures.md`。実装認可 2026-08-01・commit/push/PR/Issue操作は認可外。変更対象は tests/run-gate-tests.sh（executor）・STATE.md・.claude/success-log.md（メイン）の3件のみ。parser・hooks・設定・Skill・agentsは無変更）**→ 完了（2026-08-01）: M1C節19ケース＋findings 5件修正＝352 passed/0 failed・verifier passed: true（1回目）・受け入れ基準9項目全充足。Step 7＝ユーザーの明示的`git add` 3件→`/review-pack`→人間承認は完了済み（commit `bdf463e`）**
   - 受け入れ基準（着手前確定・2026-08-01。plan Rev.2 §9の確定文言）:
     1. `sh -n tests/run-gate-tests.sh` → exit 0
     2. `sh tests/run-gate-tests.sh` → 「0 failed」かつ exit 0（ベースライン326全維持＋M1C新規≥17ケース全PASS。実測pass総数を報告に記載）
