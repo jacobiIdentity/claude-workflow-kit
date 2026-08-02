@@ -801,8 +801,17 @@ git -C "$KIT_ROOT" show HEAD:.claude/hooks/commit-review-gate.sh > "$V1P/.claude
 cp .claude/risk-rules.json "$V1P/.claude/risk-rules.json"
 printf '{}\n' > "$V1P/.claude/settings.json"
 if [ "$KIT_HEAD_HAS_V1" -eq 1 ]; then
+  # finding①: stat は BSD→GNU の順でフォールバック（stop-state-check.sh:10 と同順）。
+  # 失敗した試行の stdout を漏らさないため各試行はコマンド置換で捕捉する
+  # （GNU stat は -f を filesystem status と解釈し、rc=1 でも stdout へ出力するため、
+  # 素朴な `stat -f ... || stat -c ...` の直列ではスナップショットが汚染される）。
+  # 両方失敗時は STAT_FAIL トークンを出力し、無音の空スナップショット化（自明PASS）を防ぐ。
   snap() { find "$REPO" -path "$REPO/.git" -prune -o -type f -print 2>/dev/null | sort \
-    | while IFS= read -r f; do printf '%s ' "$f"; stat -c '%s %Y' "$f"; done; }
+    | while IFS= read -r f; do
+        printf '%s ' "$f"
+        s=$(stat -f '%z %m' "$f" 2>/dev/null) || s=$(stat -c '%s %Y' "$f" 2>/dev/null) || s="STAT_FAIL:$f"
+        printf '%s\n' "$s"
+      done; }
   SNAP_BEFORE=$(snap)
   sh .claude/hooks/classify-risk.sh > "$TMP/b1n.out" 2> "$TMP/b1n.err"; B1N_RC=$?
   sh "$V1P/.claude/hooks/classify-risk.sh" > "$TMP/b1o.out" 2> "$TMP/b1o.err"; B1O_RC=$?
@@ -825,21 +834,40 @@ if [ "$KIT_HEAD_HAS_V1" -eq 1 ]; then
     if cmp -s "$TMP/b1gn.err" "$TMP/b1go.err"; then ok "M1A-B1 gate stderr bit 同一: $gc"; else bad "M1A-B1 gate stderr bit 同一: $gc"; fi
     check "M1A-B1 gate exit 一致: $gc" "$RC_O" "$RC_N"
   done
+  # finding④: 代表系列に証跡なし deny（G2相当）を追加。証跡を一時退避して fail-closed 経路の
+  # 新旧一致と decision=deny を確認し、直後に復旧する。
+  # 受容済み事実（挙動修正はしない）: B-1 は cutover commit 後には HEAD 版と worktree 版が同一
+  # スクリプトになり自明一致へ退化する（HEAD から v1 が消えれば SKIP 分岐）。
+  mv "$GATE_PATH" "$TMP/b1gate.bak"
+  RC_N=$(b1gate "$REPO" .claude/hooks/commit-review-gate.sh 'git commit -m "msg"' b1gn)
+  RC_O=$(b1gate "$V1P" "$V1P/.claude/hooks/commit-review-gate.sh" 'git commit -m "msg"' b1go)
+  if cmp -s "$TMP/b1gn.out" "$TMP/b1go.out"; then ok "M1A-B1 gate stdout bit 同一: 証跡なし commit（G2相当）"; else bad "M1A-B1 gate stdout bit 同一: 証跡なし commit（G2相当）"; fi
+  if cmp -s "$TMP/b1gn.err" "$TMP/b1go.err"; then ok "M1A-B1 gate stderr bit 同一: 証跡なし commit（G2相当）"; else bad "M1A-B1 gate stderr bit 同一: 証跡なし commit（G2相当）"; fi
+  check "M1A-B1 gate exit 一致: 証跡なし commit（G2相当）" "$RC_O" "$RC_N"
+  B1G2_D=$(jq -r '.hookSpecificOutput.permissionDecision // "none"' "$TMP/b1gn.out" 2>/dev/null || echo none)
+  check "M1A-B1 証跡なし commit → deny（G2相当）" "deny" "$B1G2_D"
+  mv "$TMP/b1gate.bak" "$GATE_PATH"
   SNAP_AFTER=$(snap)
   check "M1A-B1 実行前後で worktree に生成・更新ファイルなし" "$SNAP_BEFORE" "$SNAP_AFTER"
 else
   ok "M1A-B1 SKIP（HEAD に v1 スクリプトなし — cutover 後は自明に同一）"
 fi
 # --- B-2: UTF-8 locale 下の新旧比較 ---
-if [ "$KIT_HEAD_HAS_V1" -eq 1 ] && locale -a 2>/dev/null | grep -qiE '^C\.(utf8|utf-8)$'; then
-  B2N=$(env LC_ALL=C.UTF-8 sh .claude/hooks/classify-risk.sh)
-  B2O=$(env LC_ALL=C.UTF-8 sh "$V1P/.claude/hooks/classify-risk.sh")
+# finding②: ロケール候補を C.UTF-8 / C.utf8 / en_US.UTF-8 / en_US.utf8 へ拡大し、
+# 最初に利用可能なものを選択する（macOS でも en_US.UTF-8 で実行可能になる）。全滅時のみ従来どおり SKIP。
+B2_LOC=""
+for b2c in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+  if locale -a 2>/dev/null | grep -qixF "$b2c"; then B2_LOC="$b2c"; break; fi
+done
+if [ "$KIT_HEAD_HAS_V1" -eq 1 ] && [ -n "$B2_LOC" ]; then
+  B2N=$(env LC_ALL="$B2_LOC" sh .claude/hooks/classify-risk.sh)
+  B2O=$(env LC_ALL="$B2_LOC" sh "$V1P/.claude/hooks/classify-risk.sh")
   # M1-B: 比較対象を「出力全体」から「旧8キーのprojection」へ変更（B1と同じ理由）
   B2N_PROJ=$(printf '%s' "$B2N" | jq -c '{ok, risk_floor, reasons, changed_files, changed_lines, protected_paths, doc_only, staged_diff_hash}' 2>/dev/null)
   B2O_PROJ=$(printf '%s' "$B2O" | jq -c '{ok, risk_floor, reasons, changed_files, changed_lines, protected_paths, doc_only, staged_diff_hash}' 2>/dev/null)
   check "M1A-B2 UTF-8 locale 下でも旧8キーprojectionが新旧一致" "$B2O_PROJ" "$B2N_PROJ"
 else
-  ok "M1A-B2 SKIP（C.UTF-8 locale なし or HEAD v1 なし — 差分記録なし）"
+  ok "M1A-B2 SKIP（UTF-8 locale 候補全滅 or HEAD v1 なし — 差分記録なし）"
 fi
 
 # --- C2: git／env 不在・非絶対解決 ---
@@ -854,6 +882,10 @@ check "M1A-C2 git 不在 → 非Git(ls) 素通し" "none|0" "$(env PATH="$TOOLBI
 NG_D=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
   | env PATH="$TOOLBIN" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "none"')
 check "M1A-C2 git 不在 → Git スコープ deny" "deny" "$NG_D"
+# finding③: decision 比較だけでなく理由文の粒度まで確認（gate実装の実文言に一致させる）
+NG_R=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | env PATH="$TOOLBIN" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+case "$NG_R" in *"git が見つからない"*) ok "M1A-C2 git 不在 → 理由文（git が見つからない）" ;; *) bad "M1A-C2 git 不在 → 理由文（git が見つからない） (reason=[$NG_R])" ;; esac
 TOOLBIN2="$TMP/toolbin2"; mkdir -p "$TOOLBIN2"
 for t in jq grep awk sed cut cat sh git printf head tail sort uniq stat find cmp; do
   p=$(command -v "$t" 2>/dev/null) && [ -n "$p" ] && ln -sf "$p" "$TOOLBIN2/$t"
@@ -863,6 +895,9 @@ check "M1A-C2 env 不在 → classify exit 1" "1" "$NOENV_RC"
 NE_D=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
   | env PATH="$TOOLBIN2" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "none"')
 check "M1A-C2 env 不在 → Git スコープ deny" "deny" "$NE_D"
+NE_R=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | env PATH="$TOOLBIN2" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+case "$NE_R" in *"env が見つからない"*) ok "M1A-C2 env 不在 → 理由文（env が見つからない）" ;; *) bad "M1A-C2 env 不在 → 理由文（env が見つからない） (reason=[$NE_R])" ;; esac
 mkdir -p relbin
 printf '#!/bin/sh\nexec %s "$@"\n' "$REAL_GIT" > relbin/git
 chmod +x relbin/git
@@ -873,6 +908,9 @@ case "$RELABS_MSG" in *絶対パス*) ok "M1A-C2 非絶対解決の理由文言"
 RA_D=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
   | env PATH="relbin:$PATH" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "none"')
 check "M1A-C2 git 非絶対解決 → gate deny" "deny" "$RA_D"
+RA_R=$(jq -n --arg c 'git status' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | env PATH="relbin:$PATH" sh .claude/hooks/commit-review-gate.sh 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+case "$RA_R" in *"絶対パスに解決されない"*) ok "M1A-C2 git 非絶対解決 → 理由文（絶対パスに解決されない）" ;; *) bad "M1A-C2 git 非絶対解決 → 理由文（絶対パスに解決されない） (reason=[$RA_R])" ;; esac
 rm -rf relbin
 
 # --- C3: 静的監査（本番 hook 2ファイル・実起動14箇所のみ対象） ---
@@ -880,9 +918,16 @@ C3_CLS=$(grep -c 'git_s ' .claude/hooks/classify-risk.sh)
 C3_GATE=$(grep -c 'git_s ' .claude/hooks/commit-review-gate.sh)
 check "M1A-C3 git_s 呼び出し数 classify=16（M1-A基準9 + M1-B policy検証3[policyループ内ls-files/policy manifest用ls-files-s-z/policy_version用hash-object] + M1-B identity4[subject manifest用diff --raw -z/review_subject_hash用hash-object/base_head用rev-parse HEAD/object_format用rev-parse --show-object-format]）" "16" "$C3_CLS"
 check "M1A-C3 git_s 呼び出し数 gate=5" "5" "$C3_GATE"
-C3_BARE=$(grep -nE '(\$\(git[[:space:]])|(\|[[:space:]]*git[[:space:]])|(^[[:space:]]*git[[:space:]])' \
-  .claude/hooks/classify-risk.sh .claude/hooks/commit-review-gate.sh || true)
-check "M1A-C3 裸 git 起動なし" "" "$C3_BARE"
+# finding⑤: 裸 git 起動の監査を精密化 — git_s 定義本体と行全体コメントを除外した上で、
+# 行頭・コマンド置換 $( ・バッククォート・パイプ・演算子（&& || ;）直後の裸 `git ` 起動を検出する
+# （旧版は && / ; / バッククォート後の起動を見逃していた）。期待件数は厳密に 0。
+# 近似性の残余: 行末コメント・シェル文字列リテラル内部の「演算子+git 」までは構文解析して
+# いない（現状の両 hook で該当 0 件を確認済み。誤検出が出た場合は実起動でないことを確認の上で扱う）。
+C3_BARE=$(for c3f in .claude/hooks/classify-risk.sh .claude/hooks/commit-review-gate.sh; do
+  sed '/^git_s() {/,/^}/d; /^[[:space:]]*#/d' "$c3f" \
+    | grep -nE '(^[[:space:]]*|\$\(|`|\|\|?[[:space:]]*|&&[[:space:]]*|;[[:space:]]*)git[[:space:]]' || true
+done)
+check "M1A-C3 裸 git 起動なし（精密化: git_s定義・コメント除外／演算子後も検出）" "" "$C3_BARE"
 
 # --- C4: v1 出力キー集合の維持（M1-B 以降の不在） ---
 C4_KEYS=$(printf '%s' "$BASE_JSON" | jq -r 'keys_unsorted | sort | join(",")')
@@ -1220,6 +1265,48 @@ check "F18 --no-hardlinks clone でも review_subject_hash が一致" \
   "$(printf '%s' "$F18_J1" | jq -r .review_subject_hash)" "$(printf '%s' "$F18_CLONE_JSON" | jq -r .review_subject_hash)"
 check "F18 --no-hardlinks clone でも base_head が一致" \
   "$(printf '%s' "$F18_J1" | jq -r .base_head)" "$(printf '%s' "$F18_CLONE_JSON" | jq -r .base_head)"
+reset_stage
+
+# ============ M1-C: I-C4a invocation binding fixtures ============
+# G10と同型のcommon stage（有効証跡を設置）の上で、サポート外のcommit起動形式が
+# parser由来のdenyになることを検証する。有効証跡下で実行する理由: 形式がallowlistを
+# 通過してしまった場合にask到達で検出できる（証跡なしdenyとの混同を排除する）。
+# 1件でも非deny（ask/素通し）が出た場合は実parser欠陥の発見であり、修正はM1-C範囲外。
+
+lines_file app.js 10; git add app.js
+write_state test L1 L1 true approve none "Phase 3"
+HASH=$(classify | jq -r .staged_diff_hash)
+write_gate L1 true approve 0 false false "$HASH"
+
+# M1C-1〜M1C-4: --include / -i / --only / -o（別staged-set指定）
+check 'M1C-1 deny: git commit --include' "deny|0" "$(gate 'git commit --include file.txt -m "x"')"
+reason_has "M1C-R M1C-1 理由にサポート外" "サポート外"
+check 'M1C-2 deny: git commit -i' "deny|0" "$(gate 'git commit -i file.txt -m "x"')"
+check 'M1C-3 deny: git commit --only' "deny|0" "$(gate 'git commit --only app.js -m "x"')"
+check 'M1C-4 deny: git commit -o' "deny|0" "$(gate 'git commit -o app.js -m "x"')"
+
+# M1C-5〜M1C-8: --git-dir / --work-tree（結合形・分離形）
+check 'M1C-5 deny: git --git-dir=結合形 commit' "deny|0" "$(gate 'git --git-dir=/tmp/other.git commit -m "x"')"
+reason_has "M1C-R M1C-5 理由にサポート外" "サポート外"
+check 'M1C-6 deny: git --git-dir 分離形 commit' "deny|0" "$(gate 'git --git-dir /tmp/other.git commit -m "x"')"
+check 'M1C-7 deny: git --work-tree=結合形 commit' "deny|0" "$(gate 'git --work-tree=/tmp/other commit -m "x"')"
+check 'M1C-8 deny: git --work-tree 分離形 commit' "deny|0" "$(gate 'git --work-tree /tmp/other commit -m "x"')"
+
+# M1C-9〜M1C-13: GIT_* 環境変数前置（別index / 別git-dir / 別worktree / 複数 / envラッパー）
+check 'M1C-9 deny: GIT_INDEX_FILE 前置 commit' "deny|0" "$(gate 'GIT_INDEX_FILE=/tmp/idx git commit -m "x"')"
+reason_has "M1C-R M1C-9 理由にサポート外" "サポート外"
+check 'M1C-10 deny: GIT_DIR 前置 commit' "deny|0" "$(gate 'GIT_DIR=/tmp/other.git git commit -m "x"')"
+check 'M1C-11 deny: GIT_WORK_TREE 前置 commit' "deny|0" "$(gate 'GIT_WORK_TREE=/tmp/other git commit -m "x"')"
+check 'M1C-12 deny: 複数env前置 commit' "deny|0" "$(gate 'GIT_INDEX_FILE=/tmp/idx GIT_DIR=/tmp/g git commit -m "x"')"
+check 'M1C-13 deny: envラッパー＋前置 commit' "deny|0" "$(gate 'env GIT_INDEX_FILE=/tmp/idx git commit -m "x"')"
+
+# M1C-14〜M1C-15: 複合形
+check 'M1C-14 deny: env＋-C＋-a 複合形 commit' "deny|0" "$(gate 'GIT_INDEX_FILE=/tmp/idx git -C /tmp/other commit -a -m "x"')"
+check 'M1C-15 deny: グローバルオプション2連 commit' "deny|0" "$(gate 'git --git-dir=/tmp/g --work-tree=/tmp/w commit -m "x"')"
+
+# M1C-P: 陽性対照。同一fixture文脈で直後のサポート形式commitが ask になること
+# （＝上記denyが証跡欠損・fixture不備由来でないことの証明。M1-A A-3方式）
+check "M1C-P 陽性対照: git commit -m → ask" "ask|0" "$(gate 'git commit -m "msg"')"
 reset_stage
 
 # ============ 結果 ============

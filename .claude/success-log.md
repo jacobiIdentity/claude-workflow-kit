@@ -23,3 +23,7 @@
 - [2026-07-19 01:36] リポジトリ公開完了: 公開前監査 → noreply化・Claude-Sessionトレーラ除去 → cleanroom方式による旧履歴分離 → public化 → 公開後検証
   - 手順要約: 公開前監査（秘密情報既知パターン・メタデータ・LICENSE/.gitignore整備）→ 履歴のnoreply化とClaude-Sessionトレーラ除去 → cleanroom方式でクリーン履歴のみを公開対象に分離 → 正式版をpublic化 → 匿名アクセス可・旧SHA取得不可・秘密情報監査の全検証PASS → verifier検証 passed: true（1回目）
   - 主要成果物: 公開リポジトリ（クリーン履歴のみ）、STATE.md（公開完了状態の同期）
+
+- [2026-08-01 20:20] テスト恒久化（M1-C: I-C4a invocation binding fixtures＋M1-A findings 5件解消）: gate parserのサポート外commit形式15種（--include/--only/--git-dir/--work-tree/GIT_*前置/env/複合形）の有効証跡下denyを恒久回帰テスト化（M1C-1〜15＋理由文3＋陽性対照1＝19ケース）し、M1-A持ち越しのtests側findings 5件（snap() BSD/GNUフォールバック・B-2ロケール候補拡大・gate環境理由文assertion・B-1系列G2追加・裸git監査grep精密化）を修正。326→352 passed / 0 failed
+  - 手順要約: plan改訂承認（diffコマンド・success-log整合・不可侵パス列挙の3点修正）→ ベースライン326実測＋STATE.mdへ受け入れ基準9項目を事前記入（M1-B記録退避・findings再記録含む）→ executorでM1C節実装（345/0）→ executorでfindings 5件を1件ずつ修正（各回フルスイート再実行・352/0）→ メイン独立再実測＋verifier検証 passed: true（1回目）
+  - 主要成果物: tests/run-gate-tests.sh（M1C節1270行目〜・findings修正5箇所・+95/-8）、STATE.md（M1系マイルストーン記録セクション新設）、/root/.claude/plans/m1-c-invocation-fixtures.md（plan Rev.2）

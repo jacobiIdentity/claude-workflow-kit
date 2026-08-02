@@ -10,9 +10,9 @@
 
 ## セッション情報
 
-- セッションID: `2026-07-19-02`
+- セッションID: `2026-08-01-01`
 - 開始日時: `2026-07-19 09:45`
-- 最終更新: `2026-07-22 19:36`
+- 最終更新: `2026-08-01 20:25`（M1-C Step 6完了: 352 passed/0 failed・verifier passed: true 1回目・success-log.md追記済み。Step 7=ユーザーの明示的`git add` 3件→`/review-pack`手動起動待ちで停止中）
 
 ## 目標
 
@@ -23,13 +23,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: M1-B-canonical-identity
-- risk_floor: L2
-- risk_final: L2
+- phase: M1-C-invocation-fixtures
+- risk_floor: L1
+- risk_final: L1
 - verifier_passed: true
 - reviewer_verdict: approve_with_changes
-- unresolved_issues: reviewer-full 初回指摘（critical 0件・warnings 3件・非blocking）＝①policy set 8ファイル固定リスト（classify-risk.sh 内）の将来的なファイル移動・改名時のドリフト防止策が手動同期依存（README等への結合関係明記なし） ②本変更により全staged変更で8ファイルの存在・一意性・mode検証を要求する挙動変化（plan §4f・§9判断事項①に明記済みの意図した変更） ③plan §6のF15（既存回帰）に対応する明示ラベル節がrun-gate-tests.sh内に独立して存在しない（既存270＋M1A105ケースの実行で機能的には充足）。加えてReviewer自身はread-only制約により`sh tests/run-gate-tests.sh`を独立再実行できず、326 passed/0 failedの実測はメインエージェント提供値のコード整合確認（git_s呼び出し数16件・出力キー13件一致等）でのみ裏付け。plan §9判断事項①②（policy不完全repo fail化・ledger-only fail化の受容／F10 SKip許容）はB1/B2独立監査でのCLOSED判定・stage→review-pack YES判定として人間により既に確認済み（F10はSKIPせず実際に改行パスで実装・検証済み）。／最終Reviewer（1回目）はSTATE.mdのフェーズ一覧・次に再開すべき地点にM1-B作業の事前確定受け入れ基準が見当たらず、既存のPR-review-final-doc-syncフェーズの受け入れ基準（README.md/STATE.mdの2ファイルのみ変更）と本diffが矛盾するとしてreject（critical 1件・needs_human_review: true）。これに対し2026-08-01、人間が明示判断で解消: 本M1-B作業は承認済みplan（SHA-256 6f3714bba8bd59ba939853b1b07567e9b6927c6219d456b8c83e9704205b0fcc）に基づき別途明示認可されたスコープであり、B1（4件のテスト期待値変更）は人間が限定的に追認済み、B2（F5動的OID検証追加）を含む更新版は独立閉鎖監査で「VERDICT: PASS — B1: CLOSED — B2: CLOSED — stage→/review-pack: YES」の判定を受領済み。STATE.mdに残るPR-review-final-doc-syncの再開地点は本M1-B認可より前のものであり、本作業を禁止する最新指示としては扱わない。Reviewerのreject指摘はコード上のblocking defectではなくtracking/provenance上の指摘として人間判断で解消（この判断に基づきフェーズ一覧・受け入れ基準の後付けは行わず、本review-gate-stateブロックのみ更新）。最終Reviewer（2回目・人間ratification込み）を再実行して確認中
-- next_resume: 最終Reviewer（人間ratification込み・2回目）の結果を確認し、READY/BLOCKED/ESCALATEDを再判定→READYの場合のみreview-gate証跡生成→承認パケット提示で停止。commitはユーザーの別途明示承認後にのみ実行（本ラウンドでは未認可）
+- unresolved_issues: 別セッションによる独立レビュー（2026-08-02）を受け、記録2件を訂正しラウンド2の/review-packを実施済み。訂正内容: F1=success-log.md成果物欄の行数申告誤り「+137/-8」を実測`git diff --cached --numstat`値「+95/-8」へ訂正（未commitの今回エントリのみ・過去エントリ無改変） F2=検証履歴表「reviewed_diff_hash=H1一致」の曖昧記述を、H1完了実行・H2最終完了実行・review-gate.json記載値（現在の証跡はH2）を区別する記載へ訂正。ラウンド2のclassify実測値は測定時点により異なる: **H1時点（STATE.md検証履歴2行追記前）の changed_lines=171** ／ **H2時点（当該2行追記後）の changed_lines=173**。171→173の差2行は、この2行（ラウンド2初回Verifier・初回Reviewer実測結果の記録）の追記と一致し、誤記ではなく測定時点の違いによるもの（この対応関係はREADY証跡生成後の事後確認で確定。生成時点では未検証だった）。verifier passed: true confidence high。reviewer-lite approve_with_changes・critical 0・confidence medium（実行2回目=1回目は判定YAML未出力で失敗算入）。ラウンド2実行2回目（新H1に対する判定）の未解決事項「success-log.mdの95/8とreviewer手動再計算の1行差」はメインが`git diff --cached --numstat`を独立再実行し95/8と確定・記載値と完全一致で解消済み。これとは別に、**ラウンド2実行3回目（新H2に対する最終判定）の未解決事項は「171 vs 173」の1件であり（review-gate.json unresolved_count=1の対象はこちら）、95/8の指摘とは別物**。訂正前の報告で両者を混同し「unresolved_count=1＝解消済み」と誤って記載していた点を訂正する。継続事項（今回未修正・後続課題として維持）: F3=finding⑤のsedレンジ（`/^git_s() {/,/^}/d`）がgit_s()の書式変更時に閉じずファイル末尾まで削除しうる脆弱性（M1A-C5由来の既存パターン継承） F4=finding④の`mv`失敗時ガードなし（現行フローでは発火しない） F5=snap()フォールバックのcoreutilsバージョン依存・macOS実機未検証 F6=M1C-1〜15は現行parser拒否の回帰固定であり将来allowlist拡張時はfixture期待値更新が必要。加えてstop-state-check.sh:10の同種直列statパターンの潜在問題（不可侵・未変更）・M1-A/M1-B分のsuccess-log未追記（今回も追記しない）・未push 2 commit（b401421・a7944c8）の署名問題は選択肢(b)で既存SHA維持
+- next_resume: /review-packラウンド2完了後: 承認パケット提示で停止中。ユーザーがREADYパケットとreviewer verdictを確認→M1-C commitを個別に明示承認した場合のみcommit（gateのask経由。push・PR・Issue操作は別途認可）。commit後はM1完了→Decision Gate前提のM1独立レビューへ（plan Rev.2 §14）
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル
@@ -112,6 +112,17 @@
     4. 変更ファイルが README.md / STATE.md の2件のみで、stage も同2件の明示 `git add README.md STATE.md` のみ（`git add .` / `git add -A` 不使用。unstaged / untracked が残らない）。`risk_final` は「README の保証範囲と残存回避経路を変更するため」機械的下限にかかわらず L2 へ引き上げ、Reviewer は reviewer-full を使用する。commit・push・PR 本文変更・merge は行わず、/review-pack のユーザー手動起動待ちで停止する
 - [x] Phase 7: 承認待ち停止 → commit → private staging へ push（2026-07-22 完了: /review-pack READY・証跡生成 → ユーザー承認により commit 9757fd75c588a2201f1ef8d78f52a1d8c1dc5498（親=公開版 main 2752e4a・12ファイル・単一行メッセージ）→ ユーザー承認により staging（jacobiidentity/claude-workflow-kit-staging-private・private 確認済み）の feat/review-governance-gate-v1 へ push（--set-upstream・単一 ref・force なし）。local=remote SHA 一致・staging/main（bb248e6）不変・origin/main（2752e4a）不変・origin に同名 branch 未作成を確認。PR・merge・tag・追加 commit なし）
   - 受け入れ基準: 変更ファイル一覧・diff 概要・STATE.md 更新内容・受け入れ基準ごとの結果・実行/未実施テスト・Verifier 結果・独立レビュー結果（critical findings 原文）・残存リスク・未解決事項・ロールバック方法・公開版 remote 未送信の確認・commit 予定メッセージ・push 予定先（private staging remote / feat/review-governance-gate-v1）を提示して commit せず停止する。ユーザーの明示承認後にのみ commit し、private staging の同名ブランチへ push して SHA を報告する。承認後も main 更新・公開版 push・PR・merge・force push・tag・設定変更は行わない
+- [~] M1-C: commit invocation境界の恒久化（I-C4a）＋ M1-A non-blocking findings（tests側5件）の解消（plan Rev.2 `/root/.claude/plans/m1-c-invocation-fixtures.md`。実装認可 2026-08-01・commit/push/PR/Issue操作は認可外。変更対象は tests/run-gate-tests.sh（executor）・STATE.md・.claude/success-log.md（メイン）の3件のみ。parser・hooks・設定・Skill・agentsは無変更）**→ Step 6まで完了（2026-08-01）: M1C節19ケース＋findings 5件修正＝352 passed/0 failed・verifier passed: true（1回目）・受け入れ基準9項目全充足。残: Step 7＝ユーザーの明示的`git add` 3件→`/review-pack`→人間承認（フェーズ完了は人間承認をもって確定）**
+  - 受け入れ基準（着手前確定・2026-08-01。plan Rev.2 §9の確定文言）:
+    1. `sh -n tests/run-gate-tests.sh` → exit 0
+    2. `sh tests/run-gate-tests.sh` → 「0 failed」かつ exit 0（ベースライン326全維持＋M1C新規≥17ケース全PASS。実測pass総数を報告に記載）
+    3. M1C-1〜M1C-15の全形式が `deny|0`、M1C-Rの理由文assertion PASS、M1C-P陽性対照が `ask|0`
+    4. `git diff --name-only HEAD --` が、executor実装完了時点（Step 4）で `tests/run-gate-tests.sh` と `STATE.md`（Step 1事前記入分）の2件以内、全工程完了時（Step 6後）で `tests/run-gate-tests.sh`・`STATE.md`・`.claude/success-log.md` の3件のみ
+    5. 不可侵パスの限定列挙でバイト不変: `git diff --quiet -- .claude/hooks .claude/settings.json .claude/risk-rules.json .claude/agents .claude/skills .claude/commands CLAUDE.md README.md STATE.md.template` → exit 0
+    6. テスト実行前後で `git status --short` 不変（実repo汚染なし）
+    7. snap()にBSD/GNU双方のstatフォールバックが存在（`grep -c "stat -f" tests/run-gate-tests.sh` ≥ 1）し、Linux上でM1A-B1系が従来どおりPASS
+    8. 既存check行の削除ゼロ（`git diff`で削除された`check "`行が5点の強化的書き換え＝(1)snap()・(2)B-2ロケール・(3)理由文assertion追加・(4)B-1系列へのG2追加・(5)監査grep精密化 以外に存在しないことをreviewerが確認）
+    9. bash固有機能・GNU拡張・`sha256sum`の新規使用なし（`sh tests/run-gate-tests.sh`がdash/POSIX shで完走することで担保）
 
 ## 検証方法
 
@@ -156,6 +167,15 @@
 | STATE-sync-coldstart: STATE.md（コールドスタート検証結果の同期。/review-pack 初回検証） | passed: true（3観点 10/10、improvements・critical_errors なし） | 1回目 | 2026-07-22 12:53 |
 | PR-review-final-doc-sync: README 補足2項目＋STATE 同期（README.md / STATE.md のみ） | passed: true（3観点 10/10、improvements・critical_errors なし） | 1回目 | 2026-07-22 19:35 |
 | PR-review-final-doc-sync: /review-pack 初回検証（staged 2ファイル・H1） | passed: true（confidence high・10/10、improvements・critical_errors なし） | 1回目 | 2026-07-22 19:45 |
+| M1-C: tests/run-gate-tests.sh（M1C節19ケース＋findings 5件修正）/ STATE.md 事前記入 | passed: true（4観点 10/10、improvements・critical_errors なし。§9基準9項目全充足を根拠ログ3件で確認。基準4の「Step 6後3件」はverifier実施時点では対象外＝Step 4の2件以内充足で判定、との注記あり） | 1回目 | 2026-08-01 20:18 |
+| M1-C: /review-pack 初回Verifier（staged 3ファイル・H1 cedb6b11） | passed: true（confidence high・4観点 10/10、improvements・critical_errors なし。基準10項目全充足） | 1回目 | 2026-08-01 20:40 |
+| M1-C: /review-pack 初回Reviewer（reviewer-lite・H1 cedb6b11） | 実行1回目: maxTurns 8到達で判定未出力（失敗として算入）→ 実行2回目（絞り込み入力）: approve_with_changes・critical 0・recommended L1・elevation false・confidence high・reviewed_diff_hash（YAML転記値）=H1 `cedb6b11de6b07e87946119510fa02b9ea0203f7` | 2回目 | 2026-08-01 20:52 |
+| M1-C: /review-pack 最終Verifier（staged 3ファイル・H2 6a2b2cba。STATE.md確定値更新のみのdelta26行を検証対象） | passed: true（confidence high・3観点 10/10、improvements・critical_errors なし。STATEブロック7キー確定値一致・delta 26行がSTATE.mdのみに閉じることを確認） | 1回目 | 2026-08-01 23:59 |
+| M1-C: /review-pack 最終Reviewer（reviewer-lite・H2） | 実行3回目（実行回数合計3回中の最後）: approve_with_changes・critical 0・recommended L1・elevation false・confidence high・reviewed_diff_hash（YAML転記値）=H2 `6a2b2cbaad0f48cd932c286ba42d266370d2a715` | 3回目 | 2026-08-01 23:59 |
+| M1-C ラウンド2（独立レビュー指摘F1/F2の記録修正反映後）: /review-pack 初回Verifier（staged 3ファイル・新H1 a770dd44） | passed: true（confidence high・3観点10/10。success-log.mdの137誤記解消＝+95/-8に一致・STATE.mdのH1/H2/review-gate.json記載値の区別記録・tests/run-gate-tests.sh無変更を確認） | 1回目 | 2026-08-02 00:10 |
+| M1-C ラウンド2: /review-pack 初回Reviewer（reviewer-lite・新H1） | 実行1回目: 判定YAML未出力のまま終了（失敗として算入）→ 実行2回目: approve_with_changes・critical 0・recommended L1・elevation false・confidence medium・reviewed_diff_hash（YAML転記値）=新H1 `a770dd44a4439be0441a1c0def305ce2703e4163`。reviewer未解決事項「success-log.mdの+95/-8とreviewer手動再計算(約94/8)の1行差」はメインが`git diff --cached --numstat`を独立再実行し95/8と確定・success-log.md記載と完全一致することで解消 | 2回目 | 2026-08-02 00:15 |
+| M1-C ラウンド3（人間指摘: unresolved_count=1の対象混同「95/8」→「171 vs 173」の訂正・測定時点区別の反映）: /review-pack 初回Verifier（staged 3ファイル・新H1 83a13ff8。STATE.mdの既存行1箇所置換のみを検証対象） | passed: true（confidence high・4観点10/10。H1=171/H2=173の測定時点区別・171→173対応（2行追記）・unresolved_count対象の訂正記述が正確・success-log.mdの137誤記なし・tests/run-gate-tests.sh無変更（numstat 95/8をメインが独立再実行し確認）を確認） | 1回目 | 2026-08-02 01:20 |
+| M1-C ラウンド3: /review-pack 初回Reviewer（reviewer-lite・新H1） | 実行1回目: approve_with_changes・critical 0・recommended L1・elevation false・confidence medium・reviewed_diff_hash（YAML転記値）=新H1 `83a13ff8eb296f3b1ce6e631b85c4531721baa7a`。今回の記録訂正内容と提示事実の内部整合を確認、critical指摘なし。reviewer未解決事項「ラウンド2→ラウンド3のSTATE.md文言のバイト単位比較は本レビューでは未実施（累積diffのみに基づく整合性確認）」は方法論上の限定の開示であり訂正対象の欠陥ではない | 1回目 | 2026-08-02 01:25 |
 
 ## 発生エラーと対処
 
@@ -225,10 +245,40 @@ private staging の PR #1（`feat/review-governance-gate-v1`）に対する独�
 - 受容済み事項: private staging リポジトリ名の公開はユーザー受容済み
 - medium 2件の扱い: README「保証範囲と残存回避経路（重要）」への補足2項目（GitHub 操作の対象範囲 / 文字列部分一致による過剰拒否）で保証範囲を明確化し、機能拡張（gh 操作の包括検査・シェル構文解析など）は後続課題とする
 
+## M1系マイルストーン記録（2026-08-01 退避・再記録。改変禁止）
+
+STATE.mdのreview-gate-stateブロックはフェーズごとに上書きされるため、M1系の完了記録と持ち越しfindingsを本セクションに恒久保存する（M1-A findings がcommit a7944c8 のブロック上書きで一時消失した再発防止）。
+
+### M1-A 完了記録（commit `b401421` / 2026-08-01以前完了）
+
+- 内容: git isolation（gate環境検査）＋ tests 332行追加。verifier passed・人間承認済み。
+- **non-blocking findings 5件（人間指示「今回は修正しない・黙って除外せず引き継ぐ」→ M1-Cで解消するtests側修正）**:
+  1. snap() が GNU `stat -c` 専用で BSD フォールバックなし（tests/run-gate-tests.sh:805。macOSで空スナップショット化→自明PASSの恐れ）
+  2. B-2 ロケール判定が `C.utf8|C.UTF-8` のみ探索（tests:834。macOSにC.UTF-8がなく常時SKIP）
+  3. M1A系 gate環境テスト（no-git/no-env/相対解決）が decision 比較のみで、deny理由文の粒度確認（`reason_has`）がない
+  4. B-1 代表コマンド系列に証跡なしdeny（G2相当）ケースが含まれない（B-1自体のcommit後SKIP退化はM1-A承認パケットで受容済み・挙動修正しない）
+  5. 裸`git `起動の監査grepが近似的（コメント・文字列内・`git_s`定義内の誤検出/漏れの余地。期待件数の厳密化が必要）
+
+### M1-B 完了記録（commit `a7944c8` / 2026-08-01 ratification）
+
+- phase: `M1-B-canonical-identity` / risk_floor: L2 / risk_final: L2 / verifier_passed: true / reviewer_verdict: approve_with_changes
+- 旧review-gate-stateブロックのunresolved_issues全文（退避・原文のまま）: reviewer-full 初回指摘（critical 0件・warnings 3件・非blocking）＝①policy set 8ファイル固定リスト（classify-risk.sh 内）の将来的なファイル移動・改名時のドリフト防止策が手動同期依存（README等への結合関係明記なし） ②本変更により全staged変更で8ファイルの存在・一意性・mode検証を要求する挙動変化（plan §4f・§9判断事項①に明記済みの意図した変更） ③plan §6のF15（既存回帰）に対応する明示ラベル節がrun-gate-tests.sh内に独立して存在しない（既存270＋M1A105ケースの実行で機能的には充足）。加えてReviewer自身はread-only制約により`sh tests/run-gate-tests.sh`を独立再実行できず、326 passed/0 failedの実測はメインエージェント提供値のコード整合確認（git_s呼び出し数16件・出力キー13件一致等）でのみ裏付け。plan §9判断事項①②（policy不完全repo fail化・ledger-only fail化の受容／F10 SKip許容）はB1/B2独立監査でのCLOSED判定・stage→review-pack YES判定として人間により既に確認済み（F10はSKIPせず実際に改行パスで実装・検証済み）。／最終Reviewer（1回目）はSTATE.mdのフェーズ一覧・次に再開すべき地点にM1-B作業の事前確定受け入れ基準が見当たらず、既存のPR-review-final-doc-syncフェーズの受け入れ基準（README.md/STATE.mdの2ファイルのみ変更）と本diffが矛盾するとしてreject（critical 1件・needs_human_review: true）。これに対し2026-08-01、人間が明示判断で解消: 本M1-B作業は承認済みplan（SHA-256 6f3714bba8bd59ba939853b1b07567e9b6927c6219d456b8c83e9704205b0fcc）に基づき別途明示認可されたスコープであり、B1（4件のテスト期待値変更）は人間が限定的に追認済み、B2（F5動的OID検証追加）を含む更新版は独立閉鎖監査で「VERDICT: PASS — B1: CLOSED — B2: CLOSED — stage→/review-pack: YES」の判定を受領済み。STATE.mdに残るPR-review-final-doc-syncの再開地点は本M1-B認可より前のものであり、本作業を禁止する最新指示としては扱わない。Reviewerのreject指摘はコード上のblocking defectではなくtracking/provenance上の指摘として人間判断で解消（この判断に基づきフェーズ一覧・受け入れ基準の後付けは行わず、本review-gate-stateブロックのみ更新）。最終Reviewer（2回目・人間ratification込み）は完了し、人間ratification（2026-08-01）を経てcommit `a7944c8` として確定済み
+- M1-B持ち越しwarnings 3件（上記①②③）はM3（README文書対応）およびM1-B warning③（F15節）としてスコープ外管理
+
+### M1系 未解決・持ち越し事項（unresolved_issues 恒久記録）
+
+- M1-B warnings ①②（README文書対応）→ M3へ / ③F15ラベル節独立化 → 未割当
+- M1A-C2のexit code実測化 → 未割当
+- B-1のcommit後検出力退化 → 受容済み（M1-A承認パケット）
+- reviewer maxTurns到達時の打切り挙動未観測 / macOS実機検証（README:212）/ `reviewed_diff_hash`のgate非検査（audit-only）→ 継続
+- 未push 2 commit（`b401421`・`a7944c8`）の署名問題（GitHub上Unverified表示）: 人間判断（2026-08-01・選択肢b）で既存SHA維持・amend/rebase/reset-author禁止。push時に別途判断
+- `.claude/success-log.md` にM1-A/M1-B分のエントリが未追記（最終エントリ2026-07-19）: 遡及追記の可否は人間判断待ち。M1-C分はM1-C完了時に追記する
+
 ## 次に再開すべき地点
 
-- 再開フェーズ: **PR-review-final-doc-sync（PR #1 独立レビュー結果の反映。docs 編集・機械確認・verifier passed・明示 stage まで完了。/review-pack のユーザー手動起動待ち）**。レビュー対象 head は `e0fd6d8066fde3ab0c85333cfaf88ddb67eea806`（本 docs 修正の commit 後、PR は 4 commit になる）。公開版 main への merge・tag はさらに後続
-- 最初にやること: 1. 本 docs 差分（README.md / STATE.md の staged 2ファイル）を `/review-pack` で検証する（risk_final L2・reviewer-full・verifier passed・verdict approve / approve_with_changes・critical 0・staged diff hash 一致。READY の場合だけ review-gate 証跡生成） 2. ユーザー承認後に commit 3. private staging へ push 4. 同一 SHA を公開 feature branch へ push 5. PR 本文の head SHA・追加 commit 数・差分数値を更新 6. PR の最終状態を再確認 7. merge 承認待ち（推奨方式: merge commit）
+- 再開フェーズ: **M1-C Step 7（停止・人間待ち）**。Step 0〜6完了（2026-08-01: M1C節19ケース＋findings 5件修正＝352 passed/0 failed・verifier passed: true 1回目・success-log.md追記済み）。HEAD `a7944c8`・branch `claude/review-governance-design-analysis-xnae4n`・未push 2 commitは選択肢(b)で既存SHA維持
+- 最初にやること: 1. ユーザーが変更3ファイル（tests/run-gate-tests.sh・STATE.md・.claude/success-log.md）を確認 2. ユーザーが明示的に `git add tests/run-gate-tests.sh STATE.md .claude/success-log.md`（`git add .`/`-A`不使用） 3. ユーザーが `/review-pack` を手動起動（risk_finalはclassify-risk.shの機械算出で確定。予測L1→reviewer-lite、L2昇格ならreviewer-full） 4. READY時のみ証跡生成→承認パケット提示で停止 5. ユーザー明示承認後にのみcommit（push・PR・Issue操作は別途認可） 6. M1-C完了後、Decision Gate前提の**M1独立レビュー**を別途実施（plan Rev.2 §14）
+- 旧記録（PR-review-final-doc-sync〜Phase 7）: フェーズ一覧参照。PR #1関連の再開手順はM1系完了後にDecision Gateを経て再評価
 - 前提・注意事項: **ユーザー手動確認5項目の状況（推測で完了扱いにしない）**=
   ①/hooks の目視確認 → **Web 環境の機能制約により確認不能**（2026-07-19 実施。「/hooks isn't available in this environment」表示。失敗ではない）。代替証跡: (a) settings.json の jq 抽出で PreToolUse 2エントリ＝entry1: matcher "Write|Edit|Bash"・handler 1件・guard-skip-file.sh（既存保持）／entry2: matcher "Bash"・**handler 1件（単一）**・command "sh"・args ["${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"]・**has_if: false**、Stop/PostToolUse も既存どおり (b) commit-review-gate の実動作ログ＝本セッションで git commit-tree / force push 系15形式が hook の deny メッセージでブロックされ、git status・非 Git Bash が素通し（scratchpad/phase4b-live-log.txt ほか）＝project 設定から実際に読み込まれ単一 Bash handler として動作している実測
   ②/permissions の目視確認 → **Claude Code Web 環境では利用不可（2026-07-19 実施。「isn't available in this environment」表示。UI 確認不能であり実装失敗ではない）**。代替証跡: settings.json の jq 検証＝ask 2件（git commit / git push）・deny 14件・`--force-with-lease` 独立ルール存在・gh の deny は `gh repo edit --visibility` 正規形限定（全 repo edit ではない）
