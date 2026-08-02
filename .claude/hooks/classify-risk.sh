@@ -17,10 +17,24 @@ fail() {
   exit 1
 }
 
-command -v git >/dev/null 2>&1 || fail "git が見つかりません"
 command -v jq  >/dev/null 2>&1 || fail "jq が見つかりません（本キットの前提依存です）"
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || fail "Git リポジトリの外で実行されました"
+# --- sanitized Git 実行環境（M1-A） ---
+# PATH・env 実体・git 実体をこの時点の値で単回捕捉し、以後の全 Git 呼び出しを
+# 呼び出し元プロセス環境（GIT_* 変数・system/global config）から遮断する。
+# command -v は関数・alias・相対パスを返し得るため、絶対パス以外は fail-closed。
+SANITIZED_PATH="$PATH"
+ENV_BIN=$(command -v env) || fail "env が見つかりません"
+GIT_BIN=$(command -v git) || fail "git が見つかりません"
+case "$ENV_BIN" in /*) : ;; *) fail "env が絶対パスに解決されません（fail-closed）" ;; esac
+case "$GIT_BIN" in /*) : ;; *) fail "git が絶対パスに解決されません（fail-closed）" ;; esac
+git_s() {
+  "$ENV_BIN" -i PATH="$SANITIZED_PATH" LC_ALL=C \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null \
+    "$GIT_BIN" "$@"
+}
+
+ROOT=$(git_s rev-parse --show-toplevel 2>/dev/null) || fail "Git リポジトリの外で実行されました"
 RULES="$ROOT/.claude/risk-rules.json"
 [ -r "$RULES" ] || fail "risk-rules.json が見つかりません（$RULES）"
 jq -e '.schema_version == 1' "$RULES" >/dev/null 2>&1 \
@@ -37,15 +51,74 @@ jq -e '
   || fail "risk-rules.json の追加設定の型が不正です（配列キーは文字列のみの配列か欠損、thresholds は非負整数）"
 
 # --- 異常なリポジトリ状態では判定しない（fail-closed） ---
-git -C "$ROOT" rev-parse -q --verify HEAD >/dev/null 2>&1 \
+git_s -C "$ROOT" rev-parse -q --verify HEAD >/dev/null 2>&1 \
   || fail "HEAD がありません（初回コミットは本ゲートのサポート外です。ユーザーが直接実行してください）"
-GITDIR=$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null) || fail "git-dir を特定できません"
+GITDIR=$(git_s -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null) || fail "git-dir を特定できません"
 for marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
   [ -e "$GITDIR/$marker" ] && fail "マージ／リベース等の進行中はリスク判定できません（$marker を検出）"
 done
 
+# --- M1-B: canonical identity 用の一時ファイル（producer/consumer を単独検査するため
+#     シェル変数・未検査 pipeline を経由しない。EXIT trap でクリーンアップ） ---
+MANIFEST_TMP=""
+POLICY_TMP=""
+trap 'rm -f "$MANIFEST_TMP" "$POLICY_TMP"' EXIT
+
+# --- M1-B: policy set の存在・stage 0 一意性・mode の fail-closed 検証 ---
+# 期待 mode: hooks 2本 = 100755 / 他6本 = 100644（M1-A checkpoint commit 時点の実測に一致）
+policy_expected_mode() {
+  case "$1" in
+    .claude/hooks/classify-risk.sh|.claude/hooks/commit-review-gate.sh) printf '100755\n' ;;
+    *) printf '100644\n' ;;
+  esac
+}
+POLICY_SET='.claude/hooks/classify-risk.sh
+.claude/hooks/commit-review-gate.sh
+.claude/risk-rules.json
+.claude/skills/review-pack/SKILL.md
+.claude/agents/reviewer-lite.md
+.claude/agents/reviewer-full.md
+.claude/agents/verifier.md
+.claude/settings.json'
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  P_LS=$(git_s -C "$ROOT" ls-files -s -- "$p" 2>/dev/null)
+  P_N=$(printf '%s\n' "$P_LS" | grep -c .)
+  [ "$P_N" -eq 0 ] && fail "policy set 検証失敗: $p（欠損）"
+  [ "$P_N" -eq 1 ] || fail "policy set 検証失敗: $p（重複）"
+  P_MODE=$(printf '%s\n' "$P_LS" | awk '{print $1}')
+  P_STAGE=$(printf '%s\n' "$P_LS" | awk '{print $3}')
+  [ "$P_STAGE" = "0" ] || fail "policy set 検証失敗: $p（重複、stage $P_STAGE）"
+  P_EXPMODE=$(policy_expected_mode "$p")
+  [ "$P_MODE" = "$P_EXPMODE" ] || fail "policy set 検証失敗: $p（不正mode $P_MODE）"
+done <<EOF
+$POLICY_SET
+EOF
+
+# --- M1-B: policy_version（policy set 8ファイルの index 内容から算出） ---
+POLICY_TMP=$(mktemp "${TMPDIR:-/tmp}/classify-policy.XXXXXX") || fail "一時ファイルを作成できません"
+git_s -C "$ROOT" ls-files -s -z -- \
+  .claude/hooks/classify-risk.sh \
+  .claude/hooks/commit-review-gate.sh \
+  .claude/risk-rules.json \
+  .claude/skills/review-pack/SKILL.md \
+  .claude/agents/reviewer-lite.md \
+  .claude/agents/reviewer-full.md \
+  .claude/agents/verifier.md \
+  .claude/settings.json > "$POLICY_TMP" 2>/dev/null
+POLICY_PRC=$?
+[ "$POLICY_PRC" -eq 0 ] || fail "policy manifest の生成に失敗しました"
+[ -s "$POLICY_TMP" ] || fail "policy manifest が空です"
+POLICY_VERSION=$(git_s -C "$ROOT" hash-object --stdin < "$POLICY_TMP" 2>/dev/null)
+POLICY_CRC=$?
+[ "$POLICY_CRC" -eq 0 ] && [ -n "$POLICY_VERSION" ] || fail "policy_version のハッシュ計算に失敗しました"
+case "$POLICY_VERSION" in
+  *[!0-9a-f]*) fail "policy_version が16進文字列ではありません" ;;
+esac
+
 # --- staged の変更量（--no-renames で rename 検出設定差を排除。rename は削除+追加で全行カウント＝保守側） ---
-NUMSTAT=$(git -C "$ROOT" diff --cached --no-renames --numstat 2>/dev/null) \
+NUMSTAT=$(git_s -C "$ROOT" -c core.bigFileThreshold=512m diff --cached --no-renames \
+  --no-ext-diff --no-textconv --diff-algorithm=myers --ignore-submodules=none --numstat 2>/dev/null) \
   || fail "git diff --cached の実行に失敗しました"
 CHANGED_FILES=$(printf '%s\n' "$NUMSTAT" | grep -c .)
 [ "$CHANGED_FILES" -gt 0 ] || fail "staged された変更がありません（明示的な git add の後に実行してください）"
@@ -71,7 +144,7 @@ PROTECTED='[]'
 PROT_HIT=0
 while IFS= read -r pat; do
   [ -n "$pat" ] || continue
-  if [ -n "$(git -C "$ROOT" diff --cached --no-renames --name-only -- ":(top,glob)$pat" 2>/dev/null)" ]; then
+  if [ -n "$(git_s -C "$ROOT" diff --cached --no-renames --name-only -- ":(top,glob)$pat" 2>/dev/null)" ]; then
     PROT_HIT=1
     PROTECTED=$(printf '%s' "$PROTECTED" | jq --arg p "$pat" '. + [$p]')
   fi
@@ -81,7 +154,7 @@ EOF
 
 # --- doc-only 判定（拡張子ベースのみ。「コメントのみのコード変更」は決定的に判定できないため L0 にしない＝保守側） ---
 DOC_EXT_RE=$(jq -r '(.doc_extensions // []) | map(gsub("[^A-Za-z0-9]"; "")) | join("|")' "$RULES" 2>/dev/null)
-NAMES=$(git -C "$ROOT" -c core.quotepath=false diff --cached --no-renames --name-only 2>/dev/null)
+NAMES=$(git_s -C "$ROOT" -c core.quotepath=false diff --cached --no-renames --name-only 2>/dev/null)
 if [ "$HAS_BINARY" -eq 0 ] && [ -n "$DOC_EXT_RE" ] \
   && ! printf '%s\n' "$NAMES" | grep -Eiqv "\.($DOC_EXT_RE)\$"; then
   DOC_ONLY=true
@@ -90,7 +163,11 @@ else
 fi
 
 # --- 秘密情報の既知パターン（追加行のみ・ベストエフォート。網羅は保証しない） ---
-ADDED_LINES=$(git -C "$ROOT" -c core.quotepath=false diff --cached --no-renames --no-color --no-ext-diff --no-textconv --unified=0 2>/dev/null | grep '^+' || true)
+ADDED_LINES=$(git_s -C "$ROOT" -c core.quotepath=false \
+  -c diff.interHunkContext=0 -c diff.indentHeuristic=true -c diff.suppressBlankEmpty=false \
+  -c core.bigFileThreshold=512m -c diff.submodule=short \
+  diff --cached --no-renames --no-color --no-ext-diff --no-textconv \
+  --diff-algorithm=myers -O/dev/null --ignore-submodules=none --unified=0 2>/dev/null | grep '^+' || true)
 SECRET_HIT=0
 while IFS= read -r pat; do
   [ -n "$pat" ] || continue
@@ -128,13 +205,43 @@ fi
 [ "$HAS_BINARY" -eq 1 ] && add_reason "バイナリファイルを含みます（行数カウントの対象外）"
 
 # --- staged diff ハッシュ（揺らぎ要因をすべて明示固定。--cached は index 比較のため mtime 非依存） ---
-STAGED_DIFF=$(git -C "$ROOT" -c core.quotepath=false -c diff.algorithm=myers \
-  diff --cached --no-renames --no-color --no-ext-diff --no-textconv --unified=3 2>/dev/null) \
+STAGED_DIFF=$(git_s -C "$ROOT" -c core.quotepath=false \
+  -c diff.noprefix=false -c diff.mnemonicPrefix=false \
+  -c diff.interHunkContext=0 -c diff.indentHeuristic=true -c diff.suppressBlankEmpty=false \
+  -c core.bigFileThreshold=512m -c diff.submodule=short \
+  diff --cached --no-renames --no-color --no-ext-diff --no-textconv \
+  --diff-algorithm=myers -O/dev/null --ignore-submodules=none --unified=3 2>/dev/null) \
   || fail "staged diff の取得に失敗しました"
 [ -n "$STAGED_DIFF" ] || fail "staged diff が空です"
-HASH=$(printf '%s\n' "$STAGED_DIFF" | git -C "$ROOT" hash-object --stdin 2>/dev/null) \
+HASH=$(printf '%s\n' "$STAGED_DIFF" | git_s -C "$ROOT" hash-object --stdin 2>/dev/null) \
   || fail "ハッシュ計算に失敗しました"
 [ -n "$HASH" ] || fail "ハッシュ計算の結果が空です"
+
+# --- M1-B: Review Subject manifest（review_subject_hash。core.abbrev・diff 表示設定に非依存。
+#     .claude/review-ledger/** を発生源から除外。producer/consumer を単独検査） ---
+MANIFEST_TMP=$(mktemp "${TMPDIR:-/tmp}/classify-subject.XXXXXX") || fail "一時ファイルを作成できません"
+git_s -C "$ROOT" -c core.quotepath=false diff --cached --raw -z \
+    --no-abbrev --no-renames --no-ext-diff --no-textconv \
+    --no-relative --ignore-submodules=none -O/dev/null \
+    -- . ':(exclude,top).claude/review-ledger' > "$MANIFEST_TMP" 2>/dev/null
+SUBJECT_PRC=$?
+[ "$SUBJECT_PRC" -eq 0 ] || fail "review subject manifest の生成に失敗しました"
+[ -s "$MANIFEST_TMP" ] || fail "review subject が空です（.claude/review-ledger を除く staged 変更がありません）"
+REVIEW_SUBJECT_HASH=$(git_s -C "$ROOT" hash-object --stdin < "$MANIFEST_TMP" 2>/dev/null)
+SUBJECT_CRC=$?
+[ "$SUBJECT_CRC" -eq 0 ] && [ -n "$REVIEW_SUBJECT_HASH" ] || fail "review_subject_hash のハッシュ計算に失敗しました"
+case "$REVIEW_SUBJECT_HASH" in
+  *[!0-9a-f]*) fail "review_subject_hash が16進文字列ではありません" ;;
+esac
+
+# --- M1-B: base_head / object_format / execution_root ---
+BASE_HEAD=$(git_s -C "$ROOT" rev-parse HEAD 2>/dev/null)
+BASE_HEAD_RC=$?
+[ "$BASE_HEAD_RC" -eq 0 ] && [ -n "$BASE_HEAD" ] || fail "base_head の取得に失敗しました"
+OBJECT_FORMAT=$(git_s -C "$ROOT" rev-parse --show-object-format 2>/dev/null)
+OBJFMT_RC=$?
+[ "$OBJFMT_RC" -eq 0 ] && [ -n "$OBJECT_FORMAT" ] || fail "object_format の取得に失敗しました"
+EXECUTION_ROOT="$ROOT"
 
 jq -n \
   --arg floor "$FLOOR" \
@@ -144,6 +251,13 @@ jq -n \
   --argjson protected "$PROTECTED" \
   --argjson doc_only "$DOC_ONLY" \
   --arg hash "$HASH" \
+  --arg policy_version "$POLICY_VERSION" \
+  --arg review_subject_hash "$REVIEW_SUBJECT_HASH" \
+  --arg base_head "$BASE_HEAD" \
+  --arg object_format "$OBJECT_FORMAT" \
+  --arg execution_root "$EXECUTION_ROOT" \
   '{ok: true, risk_floor: $floor, reasons: $reasons, changed_files: $files,
     changed_lines: $lines, protected_paths: $protected, doc_only: $doc_only,
-    staged_diff_hash: $hash}'
+    staged_diff_hash: $hash, policy_version: $policy_version,
+    review_subject_hash: $review_subject_hash, base_head: $base_head,
+    object_format: $object_format, execution_root: $execution_root}'
