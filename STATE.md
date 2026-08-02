@@ -12,7 +12,7 @@
 
 - セッションID: `2026-08-01-01`
 - 開始日時: `2026-07-19 09:45`
-- 最終更新: `2026-08-01 20:25`（M1-C Step 6完了: 352 passed/0 failed・verifier passed: true 1回目・success-log.md追記済み。Step 7=ユーザーの明示的`git add` 3件→`/review-pack`手動起動待ちで停止中）
+- 最終更新: `2026-08-02`（M1-C commit `bdf463e` 完了・push済み。M1独立監査（fresh context）PASS_WITH_FOLLOWUPS、352 passed/0 failedを独立再確認済み。次はmainをbaseとするM1のPR準備・作成）
 
 ## 目標
 
@@ -23,13 +23,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: M1-C-invocation-fixtures
-- risk_floor: L1
-- risk_final: L1
+- phase: STATE-sync-resume-pointer
+- risk_floor: L0
+- risk_final: L0
 - verifier_passed: true
-- reviewer_verdict: approve_with_changes
+- reviewer_verdict: none
 - unresolved_issues: 別セッションによる独立レビュー（2026-08-02）を受け、記録2件を訂正しラウンド2の/review-packを実施済み。訂正内容: F1=success-log.md成果物欄の行数申告誤り「+137/-8」を実測`git diff --cached --numstat`値「+95/-8」へ訂正（未commitの今回エントリのみ・過去エントリ無改変） F2=検証履歴表「reviewed_diff_hash=H1一致」の曖昧記述を、H1完了実行・H2最終完了実行・review-gate.json記載値（現在の証跡はH2）を区別する記載へ訂正。ラウンド2のclassify実測値は測定時点により異なる: **H1時点（STATE.md検証履歴2行追記前）の changed_lines=171** ／ **H2時点（当該2行追記後）の changed_lines=173**。171→173の差2行は、この2行（ラウンド2初回Verifier・初回Reviewer実測結果の記録）の追記と一致し、誤記ではなく測定時点の違いによるもの（この対応関係はREADY証跡生成後の事後確認で確定。生成時点では未検証だった）。verifier passed: true confidence high。reviewer-lite approve_with_changes・critical 0・confidence medium（実行2回目=1回目は判定YAML未出力で失敗算入）。ラウンド2実行2回目（新H1に対する判定）の未解決事項「success-log.mdの95/8とreviewer手動再計算の1行差」はメインが`git diff --cached --numstat`を独立再実行し95/8と確定・記載値と完全一致で解消済み。これとは別に、**ラウンド2実行3回目（新H2に対する最終判定）の未解決事項は「171 vs 173」の1件であり（review-gate.json unresolved_count=1の対象はこちら）、95/8の指摘とは別物**。訂正前の報告で両者を混同し「unresolved_count=1＝解消済み」と誤って記載していた点を訂正する。継続事項（今回未修正・後続課題として維持）: F3=finding⑤のsedレンジ（`/^git_s() {/,/^}/d`）がgit_s()の書式変更時に閉じずファイル末尾まで削除しうる脆弱性（M1A-C5由来の既存パターン継承） F4=finding④の`mv`失敗時ガードなし（現行フローでは発火しない） F5=snap()フォールバックのcoreutilsバージョン依存・macOS実機未検証 F6=M1C-1〜15は現行parser拒否の回帰固定であり将来allowlist拡張時はfixture期待値更新が必要。加えてstop-state-check.sh:10の同種直列statパターンの潜在問題（不可侵・未変更）・M1-A/M1-B分のsuccess-log未追記（今回も追記しない）・未push 2 commit（b401421・a7944c8）の署名問題は選択肢(b)で既存SHA維持
-- next_resume: /review-packラウンド2完了後: 承認パケット提示で停止中。ユーザーがREADYパケットとreviewer verdictを確認→M1-C commitを個別に明示承認した場合のみcommit（gateのask経由。push・PR・Issue操作は別途認可）。commit後はM1完了→Decision Gate前提のM1独立レビューへ（plan Rev.2 §14）
+- next_resume: mainをbaseとするM1（M1-A・M1-B・M1-C）のPR準備・作成。M1-C実装コミット `bdf463e` を含むM1系はすべて完了済み。M1独立監査（fresh context・2026-08-02）の判定は**PASS_WITH_FOLLOWUPS**（352 passed/0 failedを独立に再実行して再確認済み）。PR作成はユーザーの明示認可後にのみ実施。**M2にはまだ着手しない**
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル
@@ -276,9 +276,9 @@ STATE.mdのreview-gate-stateブロックはフェーズごとに上書きされ�
 
 ## 次に再開すべき地点
 
-- 再開フェーズ: **M1-C Step 7（停止・人間待ち）**。Step 0〜6完了（2026-08-01: M1C節19ケース＋findings 5件修正＝352 passed/0 failed・verifier passed: true 1回目・success-log.md追記済み）。HEAD `a7944c8`・branch `claude/review-governance-design-analysis-xnae4n`・未push 2 commitは選択肢(b)で既存SHA維持
-- 最初にやること: 1. ユーザーが変更3ファイル（tests/run-gate-tests.sh・STATE.md・.claude/success-log.md）を確認 2. ユーザーが明示的に `git add tests/run-gate-tests.sh STATE.md .claude/success-log.md`（`git add .`/`-A`不使用） 3. ユーザーが `/review-pack` を手動起動（risk_finalはclassify-risk.shの機械算出で確定。予測L1→reviewer-lite、L2昇格ならreviewer-full） 4. READY時のみ証跡生成→承認パケット提示で停止 5. ユーザー明示承認後にのみcommit（push・PR・Issue操作は別途認可） 6. M1-C完了後、Decision Gate前提の**M1独立レビュー**を別途実施（plan Rev.2 §14）
-- 旧記録（PR-review-final-doc-sync〜Phase 7）: フェーズ一覧参照。PR #1関連の再開手順はM1系完了後にDecision Gateを経て再評価
+- 再開フェーズ: **mainをbaseとするM1（M1-A・M1-B・M1-C）のPR準備・作成**。M1-A（`b401421`）・M1-B（`a7944c8`）・M1-C（実装コミット `bdf463e`。test: add M1-C invocation fixtures）はすべて完了済み。M1独立監査（fresh context・2026-08-02実施）の判定は**PASS_WITH_FOLLOWUPS**——352 passed / 0 failedを独立に再実行して再確認済み、スコープ・不可侵パス・policy_versionの実データ整合・署名状態等を一次資料で検証済み。ただし、**技術的実装は独立再検証済みである一方、M1-A・M1-Bの当時のVerifier出力および事前定義済み受け入れ基準はリポジトリ外に存在し、これらに関する手続き証跡の一部は本STATE.mdの記録（「M1系マイルストーン記録」セクション等）自体に基づく**（独立監査の重大指摘②）。branch `claude/review-governance-design-analysis-xnae4n`、PR base候補は `origin/main`（ブランチ位相確認済み: `origin/feat/review-governance-gate-v1` ⊂ `origin/main` ⊂ 本ブランチの完全な線形祖先関係・分岐なし。feat側にのみ存在し本ブランチに欠落しているcommitはない）
+- 最初にやること: 1. mainをbaseとするPRの作成準備（PR本文にM1独立監査結果・followups事項の記載を検討） 2. PR作成はユーザーの明示認可を得てから実施 3. PRマージ後、Decision Gate前提の**M1独立レビュー**を別途実施（plan Rev.2 §14）。**M2にはまだ着手しない**
+- 旧記録（PR-review-final-doc-sync〜Phase 7）: フェーズ一覧参照
 - 前提・注意事項: **ユーザー手動確認5項目の状況（推測で完了扱いにしない）**=
   ①/hooks の目視確認 → **Web 環境の機能制約により確認不能**（2026-07-19 実施。「/hooks isn't available in this environment」表示。失敗ではない）。代替証跡: (a) settings.json の jq 抽出で PreToolUse 2エントリ＝entry1: matcher "Write|Edit|Bash"・handler 1件・guard-skip-file.sh（既存保持）／entry2: matcher "Bash"・**handler 1件（単一）**・command "sh"・args ["${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"]・**has_if: false**、Stop/PostToolUse も既存どおり (b) commit-review-gate の実動作ログ＝本セッションで git commit-tree / force push 系15形式が hook の deny メッセージでブロックされ、git status・非 Git Bash が素通し（scratchpad/phase4b-live-log.txt ほか）＝project 設定から実際に読み込まれ単一 Bash handler として動作している実測
   ②/permissions の目視確認 → **Claude Code Web 環境では利用不可（2026-07-19 実施。「isn't available in this environment」表示。UI 確認不能であり実装失敗ではない）**。代替証跡: settings.json の jq 検証＝ask 2件（git commit / git push）・deny 14件・`--force-with-lease` 独立ルール存在・gh の deny は `gh repo edit --visibility` 正規形限定（全 repo edit ではない）
