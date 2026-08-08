@@ -64,6 +64,41 @@ git_s() {
     "$GIT_BIN" "$@"
 }
 
+# --- M2-0: repository context anchoring（Issue #4）。writer/validator/gate が同一定義を
+#     共有する前提の関数（現時点は同文複製＝意味論の共有。実装共有方式は M2-A 開始前に決定）。
+#     compat/anchored の2値以外は必ず失敗する（暗黙の compat 扱いをしない） ---
+resolve_root() {
+  case "$1" in
+    anchored|compat) : ;;
+    *) return 1 ;;
+  esac
+  RR_MODE="$1"
+  RR_CWD_TOP=$(git_s rev-parse --show-toplevel 2>/dev/null) || return 1
+  if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+    [ "$RR_MODE" = "anchored" ] && return 1
+    printf '%s\n' "$RR_CWD_TOP"
+    return 0
+  fi
+  case "$CLAUDE_PROJECT_DIR" in
+    /*) : ;;
+    *) return 1 ;;
+  esac
+  RR_ANCHOR_TOP=$(git_s -C "$CLAUDE_PROJECT_DIR" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ "$RR_ANCHOR_TOP" = "$RR_CWD_TOP" ] || return 1
+  printf '%s\n' "$RR_ANCHOR_TOP"
+  return 0
+}
+
+# --- M2-0範囲外の既知事項（2026-08-05ユーザー確定・意図的スコープ外）:
+#     PROJ は resolve_root() によるrepository context anchoringの対象外。
+#     RULES（risk-rules.json）の読み込みは本変数を経由し、CLAUDE_PROJECT_DIR未設定時は
+#     cwd相対の "." へフォールバックするのみで、cwdとの一致検証は行わない。
+#     この RULES から読む risk-rules.json 由来の追加 l3_command_patterns（BUILTIN_L3の
+#     ハードコード分は本変数に依存せず常時有効）は、multi-repo構成で「意図したrepoの
+#     追加ルール」である保証がない。push 判定（is_push）自体は、サポート形式 commit の
+#     判定を通過した場合のみ到達する ROOT/resolve_root() には一切到達しない。
+#     push・追加L3パターン評価へのanchoring適用はM2-0では実装せず、既知の対象外・
+#     将来対応候補として記録する（Issue #4の後続課題。STATE.md M2-0節参照）。
 PROJ="${CLAUDE_PROJECT_DIR:-.}"
 RULES="$PROJ/.claude/risk-rules.json"
 rules_deny() {
@@ -150,8 +185,8 @@ fi
 
 # ===== 以降はサポート形式の git commit のみ =====
 
-ROOT=$(git_s rev-parse --show-toplevel 2>/dev/null) \
-  || emit deny "リポジトリルートを特定できません（fail-closed）。"
+ROOT=$(resolve_root compat) \
+  || emit deny "リポジトリルートを解決できません（CLAUDE_PROJECT_DIR 未設定/相対パス/git 外/cwd との不一致のいずれか。fail-closed）。M2-0 時点では compat モードで検証する。"
 
 # --- 統制ファイルの staged / working tree 整合性検査 ---
 # ゲートは working tree 上のスクリプト・設定で動くが、commit されるのは index 上の内容。

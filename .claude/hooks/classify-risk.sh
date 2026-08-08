@@ -19,6 +19,22 @@ fail() {
 
 command -v jq  >/dev/null 2>&1 || fail "jq が見つかりません（本キットの前提依存です）"
 
+# --- M2-0: root解決モードの引数解析（resolve_root() より前に確定させる） ---
+# --root-mode=compat（省略時の既定）: CLAUDE_PROJECT_DIR 未設定なら cwd の toplevel を許容する
+#   互換経路。設定時は anchored と同じ不一致検査を行う。この経路で解決した root は
+#   Evidence の束縛値生成に使用しないこと（強制は M2-A の writer が anchored 専用で担う）。
+# --root-mode=anchored: CLAUDE_PROJECT_DIR 未設定・相対パス・git 外・解決不能・cwd との
+#   不一致のいずれでも fail する（cwd フォールバックなし）。M2-A 以降の writer/validator/
+#   新 gate 経路が使用する。
+ROOT_MODE=compat
+for _rm_arg in "$@"; do
+  case "$_rm_arg" in
+    --root-mode=anchored) ROOT_MODE=anchored ;;
+    --root-mode=compat) ROOT_MODE=compat ;;
+    *) fail "不明な引数です（--root-mode=anchored または --root-mode=compat のみ許可）: $_rm_arg" ;;
+  esac
+done
+
 # --- sanitized Git 実行環境（M1-A） ---
 # PATH・env 実体・git 実体をこの時点の値で単回捕捉し、以後の全 Git 呼び出しを
 # 呼び出し元プロセス環境（GIT_* 変数・system/global config）から遮断する。
@@ -34,7 +50,32 @@ git_s() {
     "$GIT_BIN" "$@"
 }
 
-ROOT=$(git_s rev-parse --show-toplevel 2>/dev/null) || fail "Git リポジトリの外で実行されました"
+# --- M2-0: repository context anchoring（Issue #4）。writer/validator/gate が同一定義を
+#     共有する前提の関数（現時点は同文複製＝意味論の共有。実装共有方式は M2-A 開始前に決定）。
+#     compat/anchored の2値以外は必ず失敗する（暗黙の compat 扱いをしない） ---
+resolve_root() {
+  case "$1" in
+    anchored|compat) : ;;
+    *) return 1 ;;
+  esac
+  RR_MODE="$1"
+  RR_CWD_TOP=$(git_s rev-parse --show-toplevel 2>/dev/null) || return 1
+  if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+    [ "$RR_MODE" = "anchored" ] && return 1
+    printf '%s\n' "$RR_CWD_TOP"
+    return 0
+  fi
+  case "$CLAUDE_PROJECT_DIR" in
+    /*) : ;;
+    *) return 1 ;;
+  esac
+  RR_ANCHOR_TOP=$(git_s -C "$CLAUDE_PROJECT_DIR" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ "$RR_ANCHOR_TOP" = "$RR_CWD_TOP" ] || return 1
+  printf '%s\n' "$RR_ANCHOR_TOP"
+  return 0
+}
+
+ROOT=$(resolve_root "$ROOT_MODE") || fail "リポジトリルートを解決できません（mode=$ROOT_MODE。CLAUDE_PROJECT_DIR 未設定/相対パス/git 外/cwd との不一致のいずれか。fail-closed）"
 RULES="$ROOT/.claude/risk-rules.json"
 [ -r "$RULES" ] || fail "risk-rules.json が見つかりません（$RULES）"
 jq -e '.schema_version == 1' "$RULES" >/dev/null 2>&1 \
