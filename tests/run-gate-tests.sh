@@ -827,9 +827,13 @@ if [ "$KIT_HEAD_HAS_V1" -eq 1 ]; then
       | CLAUDE_PROJECT_DIR="$1" sh "$2" > "$TMP/$4.out" 2> "$TMP/$4.err"
     echo $?
   }
+  # M2-0: b1gate() の $1 は CLAUDE_PROJECT_DIR に渡るのみで cwd は変えない（cwd は常に $REPO）。
+  # resolve_root() 導入後は CLAUDE_PROJECT_DIR が cwd の toplevel と一致しないと commit 経路で
+  # fail-closed になるため、旧側（$V1P、git 外）呼び出しにも cwd 一致値 $REPO を明示的に渡す
+  # （F18 の CLAUDE_PROJECT_DIR 明示付与と同型。$2 の実行スクリプトは引き続き $V1P 版のまま）。
   for gc in 'git status' 'git push origin main' 'git commit -m "msg"' 'git commit -am "x"' 'git push --force'; do
     RC_N=$(b1gate "$REPO" .claude/hooks/commit-review-gate.sh "$gc" b1gn)
-    RC_O=$(b1gate "$V1P" "$V1P/.claude/hooks/commit-review-gate.sh" "$gc" b1go)
+    RC_O=$(b1gate "$REPO" "$V1P/.claude/hooks/commit-review-gate.sh" "$gc" b1go)
     if cmp -s "$TMP/b1gn.out" "$TMP/b1go.out"; then ok "M1A-B1 gate stdout bit 同一: $gc"; else bad "M1A-B1 gate stdout bit 同一: $gc"; fi
     if cmp -s "$TMP/b1gn.err" "$TMP/b1go.err"; then ok "M1A-B1 gate stderr bit 同一: $gc"; else bad "M1A-B1 gate stderr bit 同一: $gc"; fi
     check "M1A-B1 gate exit 一致: $gc" "$RC_O" "$RC_N"
@@ -840,7 +844,7 @@ if [ "$KIT_HEAD_HAS_V1" -eq 1 ]; then
   # スクリプトになり自明一致へ退化する（HEAD から v1 が消えれば SKIP 分岐）。
   mv "$GATE_PATH" "$TMP/b1gate.bak"
   RC_N=$(b1gate "$REPO" .claude/hooks/commit-review-gate.sh 'git commit -m "msg"' b1gn)
-  RC_O=$(b1gate "$V1P" "$V1P/.claude/hooks/commit-review-gate.sh" 'git commit -m "msg"' b1go)
+  RC_O=$(b1gate "$REPO" "$V1P/.claude/hooks/commit-review-gate.sh" 'git commit -m "msg"' b1go)
   if cmp -s "$TMP/b1gn.out" "$TMP/b1go.out"; then ok "M1A-B1 gate stdout bit 同一: 証跡なし commit（G2相当）"; else bad "M1A-B1 gate stdout bit 同一: 証跡なし commit（G2相当）"; fi
   if cmp -s "$TMP/b1gn.err" "$TMP/b1go.err"; then ok "M1A-B1 gate stderr bit 同一: 証跡なし commit（G2相当）"; else bad "M1A-B1 gate stderr bit 同一: 証跡なし commit（G2相当）"; fi
   check "M1A-B1 gate exit 一致: 証跡なし commit（G2相当）" "$RC_O" "$RC_N"

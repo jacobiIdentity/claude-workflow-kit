@@ -12,7 +12,7 @@
 
 - セッションID: `2026-08-01-01`
 - 開始日時: `2026-07-19 09:45`
-- 最終更新: `2026-08-06 00:05`（M2-0: repository context anchoring（Issue #4）。実装・全検証完了後、`/review-pack`初回サイクルでH1→H2→READY到達・証跡生成・承認パケット提示まで到達。ユーザーが1巡目回答（commit未承認・push/L3は別Issue候補化のみ今回未作成・「次に再開すべき地点」の記述不備を修正）→修正→**verifierが「最終更新」との不整合を指摘**→両方を整合させ再検証・**2巡目のREADY到達・承認パケット再提示**→ユーザーが2巡目回答: ①commitはまだ不可（②の書き換えを先に済ませてから再READYを取ること）②push/L3パターン評価へのanchoring適用はM2-0対象外を維持し別Issue候補（今回はIssue作成・更新なし）③「次に再開すべき地点」を**point-in-time記述から`review-gate-state`＋driftの有無に基づく安定契約へ書き換える**（個別の点時点ハッシュはこの「最終更新」行と検証履歴表が正本とし、「次に再開すべき地点」自体は以後の`/review-pack`サイクルで書き換えなくても陳腐化しない形にする）。**本更新でこの契約表現への書き換えを実施。この記述修正自体が新たなstaged差分となるため直前のREADY・証跡は失効として扱い、rm -fで破棄済み。`/review-pack`を手順1から再実行中**。**commit・push・`/review-pack`外での証跡生成・PR/Issue作成/更新・M2-A以降の着手はいずれも本タスクの認可範囲外**）
+- 最終更新: `2026-08-08 17:55頃`（**B1-fix-PR8-harness**: M2-0は2026-08-06に`/review-pack`サイクル3完了・ユーザー承認を経てcommit `d088ab1`として確定済み。その後ユーザー承認によりpush・PR #8作成済み（本セッション内で実施）。PR #8のfresh-context独立レビューが**blocking finding B-1**（working treeでは375 passed/0 failedだがPR-head実木では373 passed/2 failedとなるテストハーネス回帰。原因はM2-0の`resolve_root()`導入によりM1A-B1ブロックの`b1gate()`旧側呼び出し「`CLAUDE_PROJECT_DIR=$V1P`（git外・cwdの`$REPO`と不一致）」がcommit経路でfail-closed denyとなり新側とstdout分岐したこと）を検出。ユーザー承認済みの最小修正（`b1gate()`呼び出し2箇所の`$1`を`$V1P`→`$REPO`へ変更。M2-0本体の設計変更なし）を実装し、working tree上のフルスイートで**375 passed/0 failed/exit 0**を確認。verifier検証 passed: true（1回目）・reviewer-lite検証 verdict: approve_with_changes（critical_findings 0件・needs_human_review: false、1回目。非blocking warning 1件は「B1-fix-PR8-harness」フェーズ・発生エラーと対処に記録）を取得。**commit未実施**——commit-review-gate.shの証跡ハッシュ照合を通すための新規`/review-pack`証跡が必要（CLAUDE.md §8によりユーザー手動起動待ち）。commit成立後のscratch worktreeでのclean-tree full suite再確認も未実施のまま残っている。詳細は「B1-fix-PR8-harness」フェーズ・検証履歴表・次に再開すべき地点を参照。**push・merge・Issue更新・M2-A着手は本タスクでは認可範囲外のまま**）
 
 ## 目標
 
@@ -25,13 +25,13 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: M2-0-repository-context-anchoring
-- risk_floor: L2
-- risk_final: L2
+- phase: B1-fix-PR8-harness
+- risk_floor: L1
+- risk_final: L1
 - verifier_passed: true
 - reviewer_verdict: approve_with_changes
-- unresolved_issues: 直近のverifier/reviewer-fullの指摘事項全文は「検証履歴」表の最新行を参照（本フィールドには点時点のハッシュ・実行回数を書かない。理由: 記載するたびに次サイクルで陳腐化し「本サイクル」の自己ラベルが誤りになる事象が2026-08-05〜06に複数回発生したため、以後は参照先を一元化する）
-- next_resume: 再開手順は本ファイル「## 次に再開すべき地点」節の再開判断契約（証跡の有無・staged_diff_hashのdrift確認・verifier_passed/reviewer_verdictの3条件でcommit可否判断からの再開か`/review-pack`手順1からの再実行かを判定する）を参照。本フィールドには点時点の手順番号を書かない（理由は unresolved_issues と同様）
+- unresolved_issues: 直近のverifier/reviewer-liteの指摘事項全文は「検証履歴」表の最新行を参照（本フィールドには点時点のハッシュ・実行回数を書かない。理由: 記載するたびに次サイクルで陳腐化し「本サイクル」の自己ラベルが誤りになる事象が2026-08-05〜06に複数回発生したため、以後は参照先を一元化する）
+- next_resume: 再開手順は本ファイル「## 次に再開すべき地点」節のB1-fix-PR8-harness再開契約（証跡の有無・staged_diff_hashのdrift確認・verifier_passed/reviewer_verdictの3条件でcommit可否判断からの再開か`/review-pack`手順1からの再実行かを判定する）を参照。本フィールドには点時点の手順番号を書かない（理由は unresolved_issues と同様）
 <!-- review-gate-state:end -->
 
 ## 対象範囲・対象外・リスクレベル
@@ -144,6 +144,12 @@
     - 基準2について: `resolve_root()`導入は`git_s`呼び出し箇所の**構造的増加**（ROOT解決が1呼出→関数内2呼出）を伴うため、既存 C3 静的監査（`grep -c 'git_s '`の期待値。現在 classify=16 / gate=5）は **classify=17 / gate=6 へ更新してよい**。これは検査対象の呼び出し箇所が実際に増えた事実の反映（強化）であり、アサーション弱体化ではない。C3以外の既存ケースの期待値は変更しないこと
     - 基準10について: 本プロジェクトのテストは黒箱（サブプロセス起動）方式のみで、`resolve_root()`をシェル関数として直接sourceする単体テストは行わない（sourceはスクリプト全体を即時実行するため関数単体の分離不能）。「引数不足」はclassify-risk.shの`--root-mode=`引数パーサ自体が未知値を fail することで、「未知mode」は同パーサが`anchored|compat`以外の値を fail することで、それぞれ黒箱的に実証する。anchoredモードのfail-closedな性質（未設定/相対/git外/不一致すべてでfail）は`--root-mode=anchored`直接実行の複数fixtureで実証する
     - 基準5・6の裏付け: 既存テストハーネスは起動時に`export CLAUDE_PROJECT_DIR="$REPO"`をグローバル設定し、以後`cd`しないため、既存352ケースは全件「CLAUDE_PROJECT_DIR設定済み・cwdと一致」の経路を通る。したがって基準6（一致時の陽性対照）は既存352件のPASS維持自体が実証する一方、基準5（未設定時のfallback）は**専用の新規fixture**（サブシェルで`unset CLAUDE_PROJECT_DIR`してから呼び出す）が必須
+- [~] B1-fix-PR8-harness: PR #8（M2-0）独立レビューのblocking finding B-1修正（M1A-B1テストブロックの`b1gate()`旧側呼び出しが、M2-0の`resolve_root()`導入後にcommit経路でfail-closed denyとなり新側とstdoutが分岐していた回帰。working tree実行では375/0だがPR-head実木では373 passed/2 failed）。**M2-0本体の設計変更は対象外**（ユーザー明示認可・2026-08-08）。認可範囲: 実装・working tree検証・verifier・reviewer-lite結果の報告に加え、検証手順として明示された「修正をcommitした後のcleanなcommit treeでのfull suite再確認」を成立させるためのcommitまでを含む。push・merge・Issue更新・M2-A着手は対象外
+  - 受け入れ基準（ユーザー承認時点＝実装着手前に確定・2026-08-08。提案した最小修正案の一部としてユーザーが原文のまま承認。STATE.mdへの転記は結果確定後だが、基準の内容自体は実装後に変更していない）:
+    1. 変更が`tests/run-gate-tests.sh`の`b1gate`呼び出し2箇所（`$1`引数の値のみ）と説明コメントに限定される
+    2. `sh -n`が対象ファイルでexit 0
+    3. 本番hook（`.claude/hooks/classify-risk.sh`・`.claude/hooks/commit-review-gate.sh`）が無変更。検証対象diff（H1=`952a9d0d211167ef7d05f9315c00650a2ce9babb`）の時点でSTATE.mdも無変更（STATE.md自体の更新はCLAUDE.md規約に基づき本検証の後に別途行う）
+    4. フルスイート0 failed。特に修正前は失敗していた2ケース（`M1A-B1 gate stdout bit 同一: git commit -m "msg"`・`同: 証跡なし commit（G2相当）`）がPASSに転じること。working tree上のfull suiteに加え、修正をcommitした後のcleanなcommit treeをscratch worktree等へ展開してfull suiteを再実行し、両方で0 failedであることを確認する
 
 ## 検証方法
 
@@ -166,6 +172,7 @@
 - [x] PR-review-final-doc-sync（docs 編集・機械確認・verifier・明示 stage まで完了。commit は /review-pack →ユーザー承認待ち）: ①README「保証範囲と残存回避経路（重要）」へ2項目追加（GitHub 操作の対象範囲 / 文字列部分一致による過剰拒否。追加2行のみ・既存行の変更なし）②STATE.md へ PR #1 独立レビュー結果セクションを追加し、review-gate-state ブロック・次に再開すべき地点を同期 ③機械確認: `git diff --check` OK / `jq -e`（settings.json・risk-rules.json）OK / `sh -n` 3スクリプト OK / gate tests **165 passed / 0 failed**（テスト期待値の変更なし）④変更ファイルは README.md / STATE.md の2件のみ・`git add README.md STATE.md` の明示 stage ⑤risk_final は README 保証範囲の意味変更を理由に L2 へ引き上げ（reviewer-full 使用）。commit・push・PR 本文変更・merge は未実施
 - [x] Phase 2 差し戻し修正（2026-07-19 ユーザー独立確認の指摘10件に対応）: ①risk-rules.json 全面改訂（保護11パス・L3 コマンド13パターン=前置オプション/ラッパー/force refspec/--mirror/--delete/:ref 対応・state_md_required 6項目を新設）②commit-review-gate.sh 再構成（git/gh スコープ判定→スコープ確定後は入力不正・rules 異常も fail-closed／Phase 1 は L3 常時 deny・external_review.required=true も deny／staged 版 STATE.md の必須6項目検査／証跡保存先を git rev-parse --git-path claude-review-gate.json へ変更）③tests 改訂（既存83維持＋敵対的28ケース追加=計111。111 passed / 0 failed。ログ: scratchpad/phase2rev-test-log.txt）④sh -n 3スクリプト再通過。settings.json は引き続き無変更
 - [x] M2-0: repository context anchoring（Issue #4）をexecutorが実装（2026-08-05）。対象は `.claude/hooks/classify-risk.sh`・`.claude/hooks/commit-review-gate.sh`・`tests/run-gate-tests.sh` の3ファイルのみ。①両スクリプトに厳密に同文の `resolve_root()`（compat/anchored 2モード契約。anchored/compat 以外は即 return 1、compat かつ CLAUDE_PROJECT_DIR 未設定時のみ cwd フォールバック、それ以外は CLAUDE_PROJECT_DIR の絶対パス性・git 解決可否・cwd toplevel との一致を検査）を `git_s()` 直後に追加 ②両スクリプトの唯一の `ROOT=` 代入（`git_s rev-parse --show-toplevel` 直呼び）を `resolve_root()` 経由に置換（classify は `--root-mode=compat|anchored` 引数パーサ新設・既定 compat、未知値は即 fail。gate は `resolve_root compat` 固定、他ロジックは無変更）③`tests/run-gate-tests.sh` にM20節（M20-1〜M20-8、22ケース: CLAUDE_PROJECT_DIR未設定/相対パス/git外/解決不能の各fail-closed、anchoredモード直接実行の5性質、resolve_root()同文性とshow-toplevel局所性の静的監査、cwd=repoB≠CLAUDE_PROJECT_DIR=repoAのmulti-repo fixtureでgate deny・classify単独ok:false・execution_root非出力・anchoredでも不一致検出）を新規追加 ④既存C3静的監査2行（`git_s ` 呼び出し数の期待値）を、resolve_root() 導入によるROOT解決部の呼出構造変化（1呼出→関数内2呼出）を反映しclassify 16→17・gate 5→6へ更新（この2行以外の既存check行の期待値・記述は無変更） ⑤既存F18（`--no-hardlinks` クローンでの identity 一致確認）のfixture setup行（check文自体は無変更）を1箇所修正: スイート起動時に export される `CLAUDE_PROJECT_DIR="$REPO"` とクローン先cwdの不一致で新設の resolve_root() が正しくfail-closedにしてしまう副作用を検出し、当該classify呼び出しにのみ `CLAUDE_PROJECT_DIR="$CLONE"` を明示付与して解消。`sh -n` 3ファイルexit 0、フルスイート **374 passed / 0 failed / exit 0** を3回連続再現確認。受け入れ基準1〜10はfixtureのcheck結果に加え、テスト suite とは別のscratchpad上の使い捨てfixture（repoX/repoY等・別名・別ディレクトリ）でexecutorが独立に手動実測（`sh -n`／単体classify・gate呼び出しのJSON/exit code直接確認）して自己点検済み。git add／commit／pushは未実施（executor権限外）。詳細はexecutorの完了報告を参照
+- [x] B1-fix-PR8-harness（実装＋working tree検証まで完了。commit未実施）: `tests/run-gate-tests.sh`のb1gate()呼び出し2箇所（旧側、M1A-B1ブロック）の`$1`（CLAUDE_PROJECT_DIR）引数を`$V1P`→`$REPO`へ変更し説明コメント4行を追加（+6/-2・1ファイルのみ。実行スクリプトパス`$2`は`$V1P`版のまま無変更）。`sh -n`exit 0、working tree上フルスイート**375 passed/0 failed/exit 0**（既存352＋M20系23維持、修正前に失敗していた`M1A-B1 gate`系2ケースがPASSに転じたことを確認）。classify-risk.sh実測: risk_floor L1・staged_diff_hash `952a9d0d211167ef7d05f9315c00650a2ce9babb`・base_head `d088ab1`（M2-0 commit）。verifier検証 passed: true（4観点10/10）。reviewer-lite検証 verdict: approve_with_changes・critical_findings 0件・needs_human_review: false・confidence high・reviewed_diff_hash がH1と一致。非blocking warning 1件（旧gate内部の`classify-risk.sh`再計算が本修正により`$V1P`ではなく`$REPO`＝新側を参照するようになる副作用。現時点は無害と確認済みだが、将来「旧gate×旧classify」固有の退行を検出できなくなる潜在的カバレッジ低下を新たに指摘。ユーザー既承認の許容事項の範囲内のためこれ以上の改善は行わず、既知事項として発生エラーと対処に記録するにとどめる）。**commit未実施**（gateが証跡ハッシュ不一致でdeny——本diff＋今回のSTATE.md更新分に対する新規`/review-pack`証跡が必要。ユーザー手動起動待ち）。**修正commit後のscratch worktreeでのfull suite再確認は、commit成立後に実施予定（未実施）**
 
 ## 検証履歴
 
@@ -211,6 +218,10 @@
 | `/review-pack`サイクル3・手順5: 初回Reviewer | **verdict: reject**（critical_finding 1件: review-gate-stateブロックの`unresolved_issues`が「本サイクルH1=bf5737b5...」と誤って自己言及＝前サイクルの内容を本サイクルと誤ラベル。`next_resume`も「手順8継続」で「次に再開すべき地点」節の「手順1から再実行中」と矛盾） | 1回目 | 2026-08-06 00:25頃 |
 | `/review-pack`サイクル3・手順6: 指摘対応後Verifier再検証（unresolved_issues/next_resumeを点時点値なしの参照形式へ書き換え・H1'=`80052930cba4d514f2bec69abedb6afb600b7763`） | passed: true（3観点10/10。参照先の実在・非空・新規矛盾なしを確認） | 3回目（サイクル3累計） | 2026-08-06 00:35頃 |
 | `/review-pack`サイクル3・手順6: 指摘対応後Reviewer再検証 | verdict: approve_with_changes・critical_findings 0件（reject原因の解消を確認。warning: 検証履歴表への本サイクル分未記録＝本行以降で解消・review-gate-stateブロックのphase等がサイクル2値のまま＝手順7で確定予定） | 2回目（サイクル3累計） | 2026-08-06 00:40頃 |
+| B1-fix-PR8-harness: tests/run-gate-tests.sh（b1gate呼び出し2箇所の$1変更。H1=`952a9d0d211167ef7d05f9315c00650a2ce9babb`。PR #8独立レビューblocking finding B-1対応・`/review-pack`本体は未実施のためメインエージェントが直接依頼） | passed: true（4観点10/10。syntax/logic/security/tests各10点。improvements・critical_errors なし。375 passed/0 failed実測とb1gate呼び出し2箇所の$1変更限定・$2無変更を確認） | 1回目 | 2026-08-08 17:43頃 |
+| B1-fix-PR8-harness: reviewer-lite検証（H1=`952a9d0d211167ef7d05f9315c00650a2ce9babb`。`/review-pack`本体は未実施のためメインエージェントが直接依頼） | verdict: approve_with_changes・critical_findings 0件・recommended_level L1（risk_floor L1と同値・elevation_required false）・confidence high・reviewed_diff_hash=H1一致・needs_human_review: false・needs_external_review: false。warning 1件（非blocking）: 旧gate（$V1P）内部の`classify-risk.sh`再計算（`PROJ="${CLAUDE_PROJECT_DIR:-.}"`経由）が本修正により`$V1P`ではなく`$REPO`（新側/worktree）を参照するようになる副作用をソース確認で追認したうえで、現時点は無害（HEAD/worktree該当ファイルが同一内容）としつつ、将来「旧gate×旧classify」固有の退行を検出できなくなる潜在的カバレッジ低下が残る点をSTATE.mdへ記録するよう推奨（本行・発生エラーと対処・完了項目チェックリストで対応）。suggestion 2件（将来のfixture分離改修余地／F18参照の保守性向上。いずれも本修正のスコープ外） | 1回目 | 2026-08-08 17:52頃 |
+| B1-fix-PR8-harness: `/review-pack`手順4-5（ユーザーが`/review-pack`を手動起動。3ファイルstaged・H1=`a3421d334065b92219c482350462880baaefe9a4`・risk_floor L1）: 初回Verifier | passed: true（4観点10/10。tests/run-gate-tests.shがH1_code=`952a9d0d...`時点から不変・STATE.md新規記載の整合・review-gate-stateマーカーブロックのM2-0値保持・success-log.mdの純粋追記・未実施作業の誤完了記載なしを確認） | 1回目 | 2026-08-08 18:15頃 |
+| B1-fix-PR8-harness: `/review-pack`手順5: 初回Reviewer（reviewer-lite・H1同上） | 実行1回目（agentId破棄）: セッション実行基盤のワーカー再起動により中断・結果取得失敗（判定内容なし。実行回数には算入）。実行2回目: verdict approve_with_changes・critical_findings 0件・recommended_level L1（elevation_required false）・confidence high・reviewed_diff_hash=H1一致・needs_human_review/needs_external_review 双方false。warning 2件（非blocking。①旧gate内部classify-risk.sh/risk-rules.json参照の新側化副作用をsourceで独自追認し、STATE.md記録済みであることも確認 ②「cwdが本ブロック全体で常に$REPO」というコメントの正確性をgrep確認済み）。unresolved_issues 1件（read-only制約でtests/run-gate-tests.shとH1_codeのバイト一致は直接検査不能だが、構造・行数の機械値一致から矛盾徴候なし）。not_solved 1件（scratch worktree検証はcommit前のため本diff範囲では未達——想定どおりの記述） | 2回目（手順5累計。本サイクルReviewer実行2/3） | 2026-08-08 18:38頃 |
 
 ## 発生エラーと対処
 
@@ -223,6 +234,9 @@
 | Phase 4B 実機検証で `/usr/bin/git push --force` が素通り実行（fixture のローカル bare 宛のため実害なし）。if: Bash(git *) がパス前置でフックを起動させず、permissions.deny/ask も cd 複合形に不一致 | Phase 4B | ユーザー承認のもと ①settings.json を matcher Bash 単一ハンドラ（if なし・exec form）へ変更 ②通常 push を hook 自身が ask にする修正（commit-review-gate.sh へ PUSH_RE 追加。Phase 2 コアのユーザー承認済み変更）③README へ permissions 対象範囲・jq 欠損時の全 Bash 停止・if 登録の注意を明記。再実測で /usr/bin/git 前置・env 前置の force push が deny、通常 push が hook ask（スクリプトレベル実証）を確認。テスト 165 PASS | 解決 |
 | ユーザー独立確認で Phase 2 に重大欠陥（L3 同等表現 `git -C .. push --force`・`+main:main`・`--mirror`・`--delete` 等の素通り、rules 欠損時の fail-open、L3 自己申告通過、FR-09 未実装、証跡保存先の Stop フック循環、保護パス不足） | Phase 2 | 差し戻しを受けて基準を改訂（改訂記録参照）し、gate 再構成・rules 拡張・テスト111件で修正を検証 | 解決（再評価待ち） |
 | M2-0のM20節追加後、フルスイート実行で既存F18（`--no-hardlinks` クローンでの policy_version/review_subject_hash/base_head 一致確認）が3件fail（実測値すべて `null`）。原因はテストのバグではなく、resolve_root() 導入という意図した変更の副作用: スイート起動時にグローバル export される `CLAUDE_PROJECT_DIR="$REPO"` が、F18がクローン `$CLONE`（別リポジトリ・別toplevel）へ `cd` して classify を実行する際の cwd と一致せず、新設の repository context 不一致検査が正しく fail-closed にした | M2-0 | check文・期待値は無変更のまま、F18のclassify呼び出し1箇所にのみ `CLAUDE_PROJECT_DIR="$CLONE"` を明示付与しcwdと一致させ、従来の検証意図（クローン間でのidentity値一致）を回復。修正後フルスイート374 passed/0 failedを3回再現確認 | 解決 |
+| PR #8（M2-0）のfresh-context独立レビューがblocking finding B-1（テストハーネス回帰）を検出: M1A-B1ブロックの`b1gate()`旧側呼び出しが`CLAUDE_PROJECT_DIR=$V1P`（git外・cwdの`$REPO`と不一致）で呼ばれていたため、resolve_root()導入後は旧側呼び出しがcommit経路でfail-closed denyとなり新側とstdoutが分岐し2テストfail（working tree実行では375/0だがPR-head実木では373 passed/2 failed） | B1-fix-PR8-harness（M2-0 commit `d088ab1` の副作用。PR #8マージ前レビューで検出） | `b1gate()`呼び出し2箇所（旧側）の`$1`（CLAUDE_PROJECT_DIR）を`$V1P`→`$REPO`へ変更（説明コメント付き。実行スクリプトパス`$2`は無変更）。working tree上のフルスイートで375 passed/0 failedを確認、verifier・reviewer-lite双方approve（critical_findings 0件） | 解決（commit未実施。詳細はB1-fix-PR8-harnessフェーズ参照） |
+| reviewer-liteがB1-fix検証時にwarningとして指摘: 上記対処により旧gate（$V1P）内部の`classify-risk.sh`呼び出しが常に`$REPO`（新側/worktree）を参照するようになるため、将来「旧gate×旧classify」の組み合わせに固有の退行を検出できなくなる潜在的テストカバレッジ低下が残る | B1-fix-PR8-harness | 現時点は実害なし（HEADとworktreeの該当ファイルが同一内容）。ユーザー指示により今回のblocking修正では追加改善に広げない。将来の改修余地（`$V1P`を実gitリポジトリとして初期化しCLAUDE_PROJECT_DIRの「resolve_root()向けcwd整合」と「PROJ向け旧スクリプト参照」の二重役割を分離する等）はreviewer-liteのsuggestionとして記録のみ | 受容済み（将来対応候補・未割当） |
+| `/review-pack`手順5（初回Reviewer・reviewer-lite）実行中、セッション実行基盤のワーカープロセスが再起動され、稼働中のバックグラウンドサブエージェントが中断された（`ListAgents`が「No reachable agents」・当該エージェントのトランスクリプト末尾が「[Request interrupted by user]」であることを確認。判定結果は一切取得できず、推測・再構成はしない） | B1-fix-PR8-harness（`/review-pack`手順5） | staged diffを`classify-risk.sh`で再計算しH1（`a3421d334065b92219c482350462880baaefe9a4`）にdriftがないことを確認したうえで、同一入力・同一H1で新規reviewer-liteを再起動（実行回数はこの中断分も含めて算入）。再実行が完了しverdict approve_with_changes・critical_findings 0件を取得 | 解決 |
 
 ## コールドスタート検証結果（2026-07-22）
 
@@ -312,13 +326,20 @@ STATE.mdのreview-gate-stateブロックはフェーズごとに上書きされ�
 
 ## 次に再開すべき地点
 
-- **再開の判断契約（2026-08-06確定。point-in-time記述ではなく状態条件で決める。以後の`/review-pack`サイクルではこの契約自体を書き換えない）**: M2-0（Issue #4: repository context anchoring）の実装・全検証は完了済み。再開時は次の手順で判断する:
+- **B1-fix-PR8-harness の再開契約（2026-08-08確定・最新。状態条件で決める。以後書き換えない）**: M2-0本体は`/review-pack`サイクル3・commit `d088ab1`で完了済み（その後push・PR #8作成済み）。PR #8のfresh-context独立レビューが検出したblocking finding B-1（テストハーネス回帰）の最小修正は、実装・working tree検証（375 passed/0 failed）・verifier（passed: true）・reviewer-lite（approve_with_changes・critical_findings 0件）まで完了済み。**commit未実施**。再開時は次の手順で判断する:
+  1. `GATE=$(git rev-parse --git-path claude-review-gate.json); [ -f "$GATE" ]` で証跡の有無を確認する
+  2. 証跡があれば、`jq -r '.staged_diff_hash' "$GATE"` と `sh .claude/hooks/classify-risk.sh | jq -r '.staged_diff_hash'`（現在のstaged状態。`tests/run-gate-tests.sh`に加え本STATE.md更新分を含めた最新staged内容に対する値）を比較する
+  3. **証跡が存在し・両ハッシュが一致し（driftなし）・証跡の`verifier.passed: true`・`reviewer.verdict`がrejectでない** → READY相当。**人間によるcommit可否判断から再開する**（検証履歴表のB1-fix-PR8-harness該当2行を参照）
+  4. 上記いずれかを満たさない（証跡なし／drift あり／verifier未passed／reviewer reject） → ユーザーに`tests/run-gate-tests.sh`と本STATE.md更新分の`git add`を依頼し、`/review-pack`を手順1から起動してもらう（CLAUDE.md §8によりClaudeによる自動起動は不可）
+  5. commit成立後、**修正をcommitしたcleanなcommit treeをscratch worktree等へ展開してfull suiteを再実行し0 failedであることを確認する**手順がまだ残っている（ユーザーの検証要件。working tree側の375/0確認は完了済みだが、commit前には実施不能なため今回は未着手のまま）。この確認が完了して初めて「検証結果」が揃う
+  6. 上記が完了したら、working tree実行結果とclean worktree実行結果の両方をユーザーへ報告して停止する。**push・merge・Issue更新・M2-A着手は本タスクでは認可範囲外のまま**（別途明示認可が必要）
+- 最初にやること: 上記B1-fix契約の手順1〜4に従って再開地点を判断する
+- **M2-0本体の再開契約（2026-08-06確定。commit `d088ab1`で充足済み・参考として保持。機構はB1-fix契約と同一だが対象diff・対象フェーズが異なる）**: point-in-time記述ではなく状態条件で決める。M2-0（Issue #4: repository context anchoring）の実装・全検証は完了済み。
   1. `GATE=$(git rev-parse --git-path claude-review-gate.json); [ -f "$GATE" ]` で証跡の有無を確認する
   2. 証跡があれば、`jq -r '.staged_diff_hash' "$GATE"` と `sh .claude/hooks/classify-risk.sh | jq -r '.staged_diff_hash'`（現在のstaged状態）を比較する
   3. **証跡が存在し・両ハッシュが一致し（driftなし）・証跡の`verifier.passed: true`・`reviewer.verdict`がrejectでない** → READY相当。**人間によるcommit可否判断から再開する**（直近の承認パケット・検証履歴表を参照）
   4. 上記いずれかを満たさない（証跡なし／drift あり／verifier未passed／reviewer reject） → 現在のstaged差分をユーザーに確認したうえで`/review-pack`を手順1から再実行する
   5. いずれの場合も**M2-A以降（Evidence ledgerスキーマ・writer等）へは、本タスクの範囲内では着手しない**。push判定・risk-rules.json追加L3パターン評価へのrepository context anchoring適用はM2-0スコープ外を維持し、Issue #4の後続課題として別Issue化する候補（ユーザー確認済み・2026-08-06）だが、**本タスクではIssue作成・更新を行わない**
-- 最初にやること: 上記契約の手順1〜4に従って再開地点を判断する
 - 旧記録（M1系のPR準備メモ。M2-0着手により参照用として保持。詳細は「M1系マイルストーン記録」節およびフェーズ一覧 Phase 7・M1-C項参照）: mainをbaseとするM1（M1-A `b401421`・M1-B `a7944c8`・M1-C `bdf463e`）のPR準備・作成が未実施のまま。M1独立監査（fresh context・2026-08-02）判定はPASS_WITH_FOLLOWUPS（352 passed/0 failed独立再確認済み）。branch `claude/review-governance-design-analysis-xnae4n`、PR base候補 `origin/main`。M2-0完了後、この項目の再開要否はユーザー判断による
 - 前提・注意事項: **ユーザー手動確認5項目の状況（推測で完了扱いにしない。いずれもM1系・2026-07-19〜07-22完了分の記録）**=
   ①/hooks の目視確認 → **Web 環境の機能制約により確認不能**（2026-07-19 実施。「/hooks isn't available in this environment」表示。失敗ではない）。代替証跡: (a) settings.json の jq 抽出で PreToolUse 2エントリ＝entry1: matcher "Write|Edit|Bash"・handler 1件・guard-skip-file.sh（既存保持）／entry2: matcher "Bash"・**handler 1件（単一）**・command "sh"・args ["${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-review-gate.sh"]・**has_if: false**、Stop/PostToolUse も既存どおり (b) commit-review-gate の実動作ログ＝本セッションで git commit-tree / force push 系15形式が hook の deny メッセージでブロックされ、git status・非 Git Bash が素通し（scratchpad/phase4b-live-log.txt ほか）＝project 設定から実際に読み込まれ単一 Bash handler として動作している実測
