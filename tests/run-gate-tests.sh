@@ -827,9 +827,13 @@ if [ "$KIT_HEAD_HAS_V1" -eq 1 ]; then
       | CLAUDE_PROJECT_DIR="$1" sh "$2" > "$TMP/$4.out" 2> "$TMP/$4.err"
     echo $?
   }
+  # M2-0: b1gate() の $1 は CLAUDE_PROJECT_DIR に渡るのみで cwd は変えない（cwd は常に $REPO）。
+  # resolve_root() 導入後は CLAUDE_PROJECT_DIR が cwd の toplevel と一致しないと commit 経路で
+  # fail-closed になるため、旧側（$V1P、git 外）呼び出しにも cwd 一致値 $REPO を明示的に渡す
+  # （F18 の CLAUDE_PROJECT_DIR 明示付与と同型。$2 の実行スクリプトは引き続き $V1P 版のまま）。
   for gc in 'git status' 'git push origin main' 'git commit -m "msg"' 'git commit -am "x"' 'git push --force'; do
     RC_N=$(b1gate "$REPO" .claude/hooks/commit-review-gate.sh "$gc" b1gn)
-    RC_O=$(b1gate "$V1P" "$V1P/.claude/hooks/commit-review-gate.sh" "$gc" b1go)
+    RC_O=$(b1gate "$REPO" "$V1P/.claude/hooks/commit-review-gate.sh" "$gc" b1go)
     if cmp -s "$TMP/b1gn.out" "$TMP/b1go.out"; then ok "M1A-B1 gate stdout bit 同一: $gc"; else bad "M1A-B1 gate stdout bit 同一: $gc"; fi
     if cmp -s "$TMP/b1gn.err" "$TMP/b1go.err"; then ok "M1A-B1 gate stderr bit 同一: $gc"; else bad "M1A-B1 gate stderr bit 同一: $gc"; fi
     check "M1A-B1 gate exit 一致: $gc" "$RC_O" "$RC_N"
@@ -840,7 +844,7 @@ if [ "$KIT_HEAD_HAS_V1" -eq 1 ]; then
   # スクリプトになり自明一致へ退化する（HEAD から v1 が消えれば SKIP 分岐）。
   mv "$GATE_PATH" "$TMP/b1gate.bak"
   RC_N=$(b1gate "$REPO" .claude/hooks/commit-review-gate.sh 'git commit -m "msg"' b1gn)
-  RC_O=$(b1gate "$V1P" "$V1P/.claude/hooks/commit-review-gate.sh" 'git commit -m "msg"' b1go)
+  RC_O=$(b1gate "$REPO" "$V1P/.claude/hooks/commit-review-gate.sh" 'git commit -m "msg"' b1go)
   if cmp -s "$TMP/b1gn.out" "$TMP/b1go.out"; then ok "M1A-B1 gate stdout bit 同一: 証跡なし commit（G2相当）"; else bad "M1A-B1 gate stdout bit 同一: 証跡なし commit（G2相当）"; fi
   if cmp -s "$TMP/b1gn.err" "$TMP/b1go.err"; then ok "M1A-B1 gate stderr bit 同一: 証跡なし commit（G2相当）"; else bad "M1A-B1 gate stderr bit 同一: 証跡なし commit（G2相当）"; fi
   check "M1A-B1 gate exit 一致: 証跡なし commit（G2相当）" "$RC_O" "$RC_N"
@@ -916,8 +920,8 @@ rm -rf relbin
 # --- C3: 静的監査（本番 hook 2ファイル・実起動14箇所のみ対象） ---
 C3_CLS=$(grep -c 'git_s ' .claude/hooks/classify-risk.sh)
 C3_GATE=$(grep -c 'git_s ' .claude/hooks/commit-review-gate.sh)
-check "M1A-C3 git_s 呼び出し数 classify=16（M1-A基準9 + M1-B policy検証3[policyループ内ls-files/policy manifest用ls-files-s-z/policy_version用hash-object] + M1-B identity4[subject manifest用diff --raw -z/review_subject_hash用hash-object/base_head用rev-parse HEAD/object_format用rev-parse --show-object-format]）" "16" "$C3_CLS"
-check "M1A-C3 git_s 呼び出し数 gate=5" "5" "$C3_GATE"
+check "M1A-C3 git_s 呼び出し数 classify=17（M1-A基準9 + M1-B policy検証3[policyループ内ls-files/policy manifest用ls-files-s-z/policy_version用hash-object] + M1-B identity4[subject manifest用diff --raw -z/review_subject_hash用hash-object/base_head用rev-parse HEAD/object_format用rev-parse --show-object-format] + M2-0 resolve_root()導入により+1[関数内2呼出−旧ROOT代入の1呼出]）" "17" "$C3_CLS"
+check "M1A-C3 git_s 呼び出し数 gate=6（M2-0 resolve_root()導入により+1）" "6" "$C3_GATE"
 # finding⑤: 裸 git 起動の監査を精密化 — git_s 定義本体と行全体コメントを除外した上で、
 # 行頭・コマンド置換 $( ・バッククォート・パイプ・演算子（&& || ;）直後の裸 `git ` 起動を検出する
 # （旧版は && / ; / バッククォート後の起動を見逃していた）。期待件数は厳密に 0。
@@ -1256,8 +1260,14 @@ check "F18 同一stage内容を2回実行して一致（全体）" "$F18_J1" "$F
 CLONE="$TMP/clone-nohardlinks"
 rm -rf "$CLONE"
 git clone -q --no-hardlinks "$REPO" "$CLONE"
+# M2-0: CLAUDE_PROJECT_DIR はスイート起動時に "$REPO" へグローバル export 済み（24-25行目）。
+# クローンは cwd 上は別リポジトリ（別 toplevel）のため、compat モードの resolve_root() が
+# 正しく不一致を検出してしまう。ここでの検証意図は「クローン自体の identity 計算値が
+# 一致するか」であり repository context anchoring の検証ではないため、cwd に合わせて
+# CLAUDE_PROJECT_DIR をクローン自身のパスへ明示的に一致させる（M1A-B1 の b1gate() と同型）。
 F18_CLONE_JSON=$(
-  cd "$CLONE" && lines_file docs.md 10 && git add docs.md && sh .claude/hooks/classify-risk.sh
+  cd "$CLONE" && lines_file docs.md 10 && git add docs.md \
+    && CLAUDE_PROJECT_DIR="$CLONE" sh .claude/hooks/classify-risk.sh
 )
 check "F18 --no-hardlinks clone でも policy_version が一致" \
   "$(printf '%s' "$F18_J1" | jq -r .policy_version)" "$(printf '%s' "$F18_CLONE_JSON" | jq -r .policy_version)"
@@ -1307,6 +1317,179 @@ check 'M1C-15 deny: グローバルオプション2連 commit' "deny|0" "$(gate 
 # M1C-P: 陽性対照。同一fixture文脈で直後のサポート形式commitが ask になること
 # （＝上記denyが証跡欠損・fixture不備由来でないことの証明。M1-A A-3方式）
 check "M1C-P 陽性対照: git commit -m → ask" "ask|0" "$(gate 'git commit -m "msg"')"
+reset_stage
+
+# ============ M20: repository context anchoring（Issue #4 / M2-0） ============
+# resolve_root() の compat/anchored 2モード契約を、classify-risk.sh / commit-review-gate.sh
+# 双方の実起動（黒箱・サブプロセス）で検証する。resolve_root() 自体の source 単体テストは
+# 行わない（source はスクリプト全体を即時実行するため）。
+
+# --- M20-1: CLAUDE_PROJECT_DIR 未設定でも compat は cwd フォールバックで従来どおり動作する ---
+# （基準5。既存352件は全件 CLAUDE_PROJECT_DIR 設定済みのため、この経路は専用fixtureが必須）
+reset_stage
+lines_file docs.md 10; git add docs.md
+UNSET_CLS=$( (unset CLAUDE_PROJECT_DIR; sh .claude/hooks/classify-risk.sh) 2>/dev/null )
+UNSET_OK=$(printf '%s' "$UNSET_CLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-1a CLAUDE_PROJECT_DIR未設定でもclassifyがok:trueを返す（compat fallback）" "true" "$UNSET_OK"
+# write_state は STATE.md を git add する（HASH は STATE.md 込みの staged 集合で計算する必要がある
+# ため、write_state の後に改めて classify を実行してハッシュを取り直す。G3 等の既存パターンと同順）
+write_state test L0 L0 true none none dummy
+UNSET_HASH=$( (unset CLAUDE_PROJECT_DIR; sh .claude/hooks/classify-risk.sh) 2>/dev/null | jq -r '.staged_diff_hash')
+write_gate L0 true "" 0 false false "$UNSET_HASH"
+UNSET_GATE=$( (unset CLAUDE_PROJECT_DIR; gate 'git commit -m "x"') )
+check "M20-1b CLAUDE_PROJECT_DIR未設定でもgateが従来どおりask" "ask|0" "$UNSET_GATE"
+reset_stage
+
+# --- M20-2: CLAUDE_PROJECT_DIR が相対パス → fail/deny ---
+reset_stage
+lines_file docs.md 10; git add docs.md
+RELCLS=$(CLAUDE_PROJECT_DIR=some/relative/path sh .claude/hooks/classify-risk.sh 2>/dev/null)
+RELOK=$(printf '%s' "$RELCLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-2a CLAUDE_PROJECT_DIRが相対パスだとclassifyがok:false" "false" "$RELOK"
+RELGATE=$(CLAUDE_PROJECT_DIR=some/relative/path gate 'git commit -m "x"')
+check "M20-2b CLAUDE_PROJECT_DIRが相対パスだとgateがdeny" "deny|0" "$RELGATE"
+reset_stage
+
+# --- M20-3: CLAUDE_PROJECT_DIR が git 外のディレクトリ → fail/deny ---
+reset_stage
+lines_file docs.md 10; git add docs.md
+NONGIT_CLS=$(CLAUDE_PROJECT_DIR="$TMP" sh .claude/hooks/classify-risk.sh 2>/dev/null)
+NONGIT_OK=$(printf '%s' "$NONGIT_CLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-3a CLAUDE_PROJECT_DIRがgit外だとclassifyがok:false" "false" "$NONGIT_OK"
+NONGIT_GATE=$(CLAUDE_PROJECT_DIR="$TMP" gate 'git commit -m "x"')
+check "M20-3b CLAUDE_PROJECT_DIRがgit外だとgateがdeny" "deny|0" "$NONGIT_GATE"
+reset_stage
+
+# --- M20-4: CLAUDE_PROJECT_DIR が解決不能（存在しないパス） → fail/deny ---
+reset_stage
+lines_file docs.md 10; git add docs.md
+NOPATH_CLS=$(CLAUDE_PROJECT_DIR="$TMP/does-not-exist-xyz" sh .claude/hooks/classify-risk.sh 2>/dev/null)
+NOPATH_OK=$(printf '%s' "$NOPATH_CLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-4a CLAUDE_PROJECT_DIRが解決不能だとclassifyがok:false" "false" "$NOPATH_OK"
+NOPATH_GATE=$(CLAUDE_PROJECT_DIR="$TMP/does-not-exist-xyz" gate 'git commit -m "x"')
+check "M20-4b CLAUDE_PROJECT_DIRが解決不能だとgateがdeny" "deny|0" "$NOPATH_GATE"
+reset_stage
+
+# --- M20-5: anchoredモード直接実行の性質確認（基準10。未設定・相対・git外・未知mode。
+#     不一致は M20-8d で REPOA/REPOB を使って検証する） ---
+reset_stage
+lines_file docs.md 10; git add docs.md
+ANCH_UNSET=$( (unset CLAUDE_PROJECT_DIR; sh .claude/hooks/classify-risk.sh --root-mode=anchored) 2>/dev/null )
+ANCH_UNSET_OK=$(printf '%s' "$ANCH_UNSET" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-5a anchored+未設定はok:false（cwdフォールバックなし）" "false" "$ANCH_UNSET_OK"
+
+ANCH_MATCH=$(CLAUDE_PROJECT_DIR="$REPO" sh .claude/hooks/classify-risk.sh --root-mode=anchored 2>/dev/null)
+ANCH_MATCH_OK=$(printf '%s' "$ANCH_MATCH" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-5b anchored+CLAUDE_PROJECT_DIR一致はok:true（陽性対照）" "true" "$ANCH_MATCH_OK"
+
+ANCH_REL=$(CLAUDE_PROJECT_DIR=some/relative/path sh .claude/hooks/classify-risk.sh --root-mode=anchored 2>/dev/null)
+ANCH_REL_OK=$(printf '%s' "$ANCH_REL" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-5c anchored+相対パスはok:false" "false" "$ANCH_REL_OK"
+
+ANCH_NONGIT=$(CLAUDE_PROJECT_DIR="$TMP" sh .claude/hooks/classify-risk.sh --root-mode=anchored 2>/dev/null)
+ANCH_NONGIT_OK=$(printf '%s' "$ANCH_NONGIT" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-5d anchored+git外はok:false" "false" "$ANCH_NONGIT_OK"
+
+BADMODE_CLS=$(sh .claude/hooks/classify-risk.sh --root-mode=bogus 2>/dev/null)
+BADMODE_OK=$(printf '%s' "$BADMODE_CLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-5e 未知の--root-mode値はok:false" "false" "$BADMODE_OK"
+
+# 基準10「引数不足」の黒箱検証: --root-mode= は anchored/compat のいずれにも一致しない
+# 値なし指定であり、引数パーサの *) fail 分岐（不明な引数）へ落ちることを確認する
+EMPTYMODE_CLS=$(sh .claude/hooks/classify-risk.sh --root-mode= 2>/dev/null)
+EMPTYMODE_OK=$(printf '%s' "$EMPTYMODE_CLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-5f 空の--root-mode値はok:false" "false" "$EMPTYMODE_OK"
+reset_stage
+
+# --- M20-6: 静的監査（resolve_root() の同文性・--show-toplevel の局所性） ---
+CLS_RR=$(sed -n '/^resolve_root() {/,/^}/p' .claude/hooks/classify-risk.sh)
+GATE_RR=$(sed -n '/^resolve_root() {/,/^}/p' .claude/hooks/commit-review-gate.sh)
+check "M20-6a resolve_root()が両スクリプトで同文" "identical" "$([ "$CLS_RR" = "$GATE_RR" ] && echo identical || echo different)"
+CLS_TOP_TOTAL=$(grep -c -- '--show-toplevel' .claude/hooks/classify-risk.sh)
+CLS_TOP_IN_FN=$(printf '%s\n' "$CLS_RR" | grep -c -- '--show-toplevel')
+check "M20-6b classify: --show-toplevelはresolve_root()内にのみ存在" "$CLS_TOP_IN_FN" "$CLS_TOP_TOTAL"
+GATE_TOP_TOTAL=$(grep -c -- '--show-toplevel' .claude/hooks/commit-review-gate.sh)
+GATE_TOP_IN_FN=$(printf '%s\n' "$GATE_RR" | grep -c -- '--show-toplevel')
+check "M20-6c gate: --show-toplevelはresolve_root()内にのみ存在" "$GATE_TOP_IN_FN" "$GATE_TOP_TOTAL"
+
+# --- M20-7/M20-8: multi-repo fixture（基準3・4・10。cwd=repoB ≠ CLAUDE_PROJECT_DIR=repoA） ---
+# repoA: CLAUDE_PROJECT_DIR が指すリポジトリ（gate/classify が RULES を読む先。risk-rules.json のみ必須。
+# ROOT 解決は RULES 読み込みより後段のため、repoA が実在の git リポジトリであることが
+# 「repository が違う」ケースの検証として重要——単なる非git外部パスとの区別のため）
+REPOA="$TMP/repoA"
+mkdir -p "$REPOA/.claude"
+(cd "$REPOA" && git init -q && git config user.email a@example.com && git config user.name a \
+  && git config commit.gpgsign false && printf 'seed\n' > seed.txt && git add -A && git commit -q -m seed)
+cp "$KIT_ROOT/.claude/risk-rules.json" "$REPOA/.claude/" || exit 1
+
+# repoB: 実際のcwd。$REPOと同じ構成のフル fixture（policy set一式）を独立に持たせる
+REPOB="$TMP/repoB"
+mkdir -p "$REPOB/.claude/hooks" "$REPOB/.claude/agents" "$REPOB/.claude/skills/review-pack"
+cp "$KIT_ROOT/.claude/hooks/classify-risk.sh" "$REPOB/.claude/hooks/" || exit 1
+cp "$KIT_ROOT/.claude/hooks/commit-review-gate.sh" "$REPOB/.claude/hooks/" || exit 1
+cp "$KIT_ROOT/.claude/risk-rules.json" "$REPOB/.claude/" || exit 1
+printf '{}\n' > "$REPOB/.claude/settings.json"
+cp "$KIT_ROOT/.claude/skills/review-pack/SKILL.md" "$REPOB/.claude/skills/review-pack/" || exit 1
+cp "$KIT_ROOT/.claude/agents/reviewer-lite.md" "$REPOB/.claude/agents/" || exit 1
+cp "$KIT_ROOT/.claude/agents/reviewer-full.md" "$REPOB/.claude/agents/" || exit 1
+cp "$KIT_ROOT/.claude/agents/verifier.md" "$REPOB/.claude/agents/" || exit 1
+(cd "$REPOB" && git init -q && git config user.email b@example.com && git config user.name b \
+  && git config commit.gpgsign false && printf 'seed\n' > seed.txt && git add -A && git commit -q -m seed)
+
+# repoB に staged 変更を作る（分類対象。全 M20-7/8 サブケースで使い回す）
+(cd "$REPOB" && printf 'note line\n' > note.txt && git add note.txt)
+
+# repoB内でCLAUDE_PROJECT_DIR=repoB（一致）として正規に classify → 有効証跡を生成
+REPOB_CLS=$(cd "$REPOB" && CLAUDE_PROJECT_DIR="$REPOB" sh .claude/hooks/classify-risk.sh 2>/dev/null)
+REPOB_HASH=$(printf '%s' "$REPOB_CLS" | jq -r '.staged_diff_hash')
+REPOB_GATEPATH=$(cd "$REPOB" && git rev-parse --git-path claude-review-gate.json)
+(cd "$REPOB" && jq -n --arg h "$REPOB_HASH" \
+  '{schema_version: 1, phase: "test", risk_floor: "L0", risk_final: "L0", elevation_reason: [],
+    staged_diff_hash: $h, verifier: {passed: true, confidence: "high"}, reviewer: null,
+    external_review: {required: false, completed: false},
+    generated_at: "2026-08-05T00:00:00Z"}' > "$REPOB_GATEPATH")
+cat > "$REPOB/STATE.md" <<'EOF'
+# STATE.md（fixture）
+<!-- review-gate-state:start -->
+- phase: test
+- risk_floor: L0
+- risk_final: L0
+- verifier_passed: true
+- reviewer_verdict: none
+- unresolved_issues: none
+- next_resume: dummy
+<!-- review-gate-state:end -->
+EOF
+(cd "$REPOB" && git add STATE.md)
+
+# M20-7: 実際のテスト: cwd=repoB・CLAUDE_PROJECT_DIR=repoA（不一致）で正規形式commitを試みる
+# （有効証跡・staged STATE.md・正規形式コマンドがすべて揃っていても、repository context
+#   不一致という、より手前の fail-closed 検査で止まることを実証する）
+MISMATCH_GATE=$(cd "$REPOB" && jq -n --arg c 'git commit -m "x"' '{tool_name: "Bash", tool_input: {command: $c}}' \
+  | CLAUDE_PROJECT_DIR="$REPOA" sh .claude/hooks/commit-review-gate.sh 2>/dev/null)
+MISMATCH_DEC=$(printf '%s' "$MISMATCH_GATE" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null || echo none)
+MISMATCH_REASON=$(printf '%s' "$MISMATCH_GATE" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+check "M20-7a multi-repo(cwd=repoB≠CLAUDE_PROJECT_DIR=repoA)でgateがdeny" "deny" "$MISMATCH_DEC"
+case "$MISMATCH_REASON" in
+  *"不一致"*|*"解決できません"*) ok "M20-7b 理由文にrepository context不一致の旨" ;;
+  *) bad "M20-7b 理由文にrepository context不一致の旨 (reason=[$MISMATCH_REASON])" ;;
+esac
+
+# M20-8: 同fixtureで classify-risk.sh 単独実行（compat既定）も ok:false・exit 1
+MISMATCH_CLS=$(cd "$REPOB" && CLAUDE_PROJECT_DIR="$REPOA" sh .claude/hooks/classify-risk.sh 2>/dev/null)
+MISMATCH_CLS_RC=$?
+MISMATCH_CLS_OK=$(printf '%s' "$MISMATCH_CLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-8a multi-repo同fixtureでclassify単独がexit 1" "1" "$MISMATCH_CLS_RC"
+check "M20-8b multi-repo同fixtureでclassify単独がok:false" "false" "$MISMATCH_CLS_OK"
+MISMATCH_HAS_EXECROOT=$(printf '%s' "$MISMATCH_CLS" | jq -e 'has("execution_root")' >/dev/null 2>&1 && echo yes || echo no)
+check "M20-8c execution_rootを含む成功JSONを出力しない" "no" "$MISMATCH_HAS_EXECROOT"
+
+# M20-8d: 同fixtureを --root-mode=anchored 直接実行でも確認（基準10の「不一致」条件）
+MISMATCH_ANCH_CLS=$(cd "$REPOB" && CLAUDE_PROJECT_DIR="$REPOA" sh .claude/hooks/classify-risk.sh --root-mode=anchored 2>/dev/null)
+MISMATCH_ANCH_OK=$(printf '%s' "$MISMATCH_ANCH_CLS" | jq -r '.ok // false' 2>/dev/null || echo false)
+check "M20-8d anchored+不一致（repoA≠repoB）もok:false" "false" "$MISMATCH_ANCH_OK"
+
+rm -rf "$REPOA" "$REPOB"
 reset_stage
 
 # ============ 結果 ============
