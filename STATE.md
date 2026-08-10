@@ -12,7 +12,7 @@
 
 - セッションID: `2026-08-01-01`
 - 開始日時: `2026-07-19 09:45`
-- 最終更新: `2026-08-08 19:05頃`（**B1-fix-PR8-harness 完了**: M2-0はcommit `d088ab1`として確定済み・push・PR #8作成済み。PR #8のfresh-context独立レビューが検出した**blocking finding B-1**（working treeでは375/0だがPR-head実木では373 passed/2 failedとなるテストハーネス回帰。原因はM2-0の`resolve_root()`導入によりM1A-B1ブロックの`b1gate()`旧側呼び出しがcommit経路でfail-closed denyとなり新側とstdout分岐したこと）を、`b1gate()`呼び出し2箇所の`$1`を`$V1P`→`$REPO`へ変更する最小修正で解消。working tree上フルスイート375/0確認→verifier passed: true→ユーザーが`/review-pack`を手動起動しH1→H2の全サイクルを完遂（初回Reviewerは1回目がワーカー再起動で中断・2回目で取得）→**READY・証跡生成**→**commit `0a3c9f8`実行**（親`d088ab1`）→scratch worktreeへ展開してのclean-tree full suite再実行で**working tree・clean worktree双方375 passed/0 failed/exit 0**を確認（旧失敗2ケースのPASS転換をclean worktree側でも確認済み）。詳細は「B1-fix-PR8-harness」フェーズ・検証履歴表を参照。**push・merge・Issue更新・M2-A着手は本タスクでは認可範囲外のまま未実施**）
+- 最終更新: `2026-08-10`（**M2-plan-archive 実施中**: B1-fix完了後、ユーザー認可により doc-close `6d6b889` をpush→PR #8本文修正（事実誤認1点の訂正・B1-fix経緯の一文追記）→**PR #8 を merge commit `5735cc5` で main へマージ済み**（3コミット保持・squash/rebaseなし・merge後6項目検証PASS・main tree=PR head tree一致）。**Issue #9 起票済み**（`/review-pack` READY⇔commit gate FR-09構文契約ギャップ。B1-fix doc-close時の実測denyに基づく後続改善Issue）。M2設計確定セッションの計画ファイルへ**確定事項1・2（POLICY_SET導入時同時追加規則／resolve_root()同文複製の正式化＋監査3箇所拡張。2026-08-10ユーザー決定）**を反映し、**設計正本2文書（`docs/m2-replan.md`=v1.2原本・`docs/m2-design-confirmation-plan.md`=確定計画最終版）を repo へ保存する doc-only 変更を実施中**（ユーザー決定2026-08-10）。designated branch を origin/main（`5735cc5`）から再起動済み。受け入れ基準はフェーズ一覧「M2-plan-archive」に事前記入済み。本タスクのmerge完了後、fresh session で M2-A へ着手する）
 
 ## 目標
 
@@ -25,11 +25,11 @@
 ## レビューゲート状態（機械判定用）
 
 <!-- review-gate-state:start -->
-- phase: B1-fix-PR8-harness-doc-close
-- risk_floor: L0
-- risk_final: L0
+- phase: M2-plan-archive
+- risk_floor: L2
+- risk_final: L2
 - verifier_passed: true
-- reviewer_verdict: none
+- reviewer_verdict: approve_with_changes
 - unresolved_issues: 直近のverifierの指摘事項全文は「検証履歴」表の最新行を参照(本フィールドには点時点のハッシュ・実行回数を書かない。理由: 記載するたびに次サイクルで陳腐化し「本サイクル」の自己ラベルが誤りになる事象が2026-08-05〜06に複数回発生したため、以後は参照先を一元化する)
 - next_resume: 再開手順は本ファイル「## 次に再開すべき地点」節を参照。本フィールドには点時点の手順番号を書かない（理由は unresolved_issues と同様）
 <!-- review-gate-state:end -->
@@ -145,6 +145,7 @@
     - 基準10について: 本プロジェクトのテストは黒箱（サブプロセス起動）方式のみで、`resolve_root()`をシェル関数として直接sourceする単体テストは行わない（sourceはスクリプト全体を即時実行するため関数単体の分離不能）。「引数不足」はclassify-risk.shの`--root-mode=`引数パーサ自体が未知値を fail することで、「未知mode」は同パーサが`anchored|compat`以外の値を fail することで、それぞれ黒箱的に実証する。anchoredモードのfail-closedな性質（未設定/相対/git外/不一致すべてでfail）は`--root-mode=anchored`直接実行の複数fixtureで実証する
     - 基準5・6の裏付け: 既存テストハーネスは起動時に`export CLAUDE_PROJECT_DIR="$REPO"`をグローバル設定し、以後`cd`しないため、既存352ケースは全件「CLAUDE_PROJECT_DIR設定済み・cwdと一致」の経路を通る。したがって基準6（一致時の陽性対照）は既存352件のPASS維持自体が実証する一方、基準5（未設定時のfallback）は**専用の新規fixture**（サブシェルで`unset CLAUDE_PROJECT_DIR`してから呼び出す）が必須
 - [x] B1-fix-PR8-harness: PR #8（M2-0）独立レビューのblocking finding B-1修正（M1A-B1テストブロックの`b1gate()`旧側呼び出しが、M2-0の`resolve_root()`導入後にcommit経路でfail-closed denyとなり新側とstdoutが分岐していた回帰。working tree実行では375/0だがPR-head実木では373 passed/2 failed）。**M2-0本体の設計変更は対象外**（ユーザー明示認可・2026-08-08）。認可範囲: 実装・working tree検証・verifier・reviewer-lite結果の報告に加え、検証手順として明示された「修正をcommitした後のcleanなcommit treeでのfull suite再確認」を成立させるためのcommitまでを含む。push・merge・Issue更新・M2-A着手は対象外。**結果: commit `0a3c9f8`（親`d088ab1`）として完了。scratch worktreeでのclean-tree検証（375 passed/0 failed/exit 0）も完了**
+- [~] M2-plan-archive: 設計正本の repo 保存（2026-08-10ユーザー認可・doc-only）。`docs/m2-replan.md`（M2再計画v1.2・セッションuploads原本のバイト一致コピー）と`docs/m2-design-confirmation-plan.md`（M2設計確定セッション計画ファイル最終版。設計判断4件＋「M2-A/B開始前の確定事項」1・2の確定文言＋M2-0完了追記を含む）を新規追加し、STATE.md を現況へ更新する。**事前定義済み受け入れ基準**: (1) `docs/m2-replan.md` がセッションuploads原本とバイト一致（メインエージェントがcmpで実測。verifierはv1.2としての内容整合〔冒頭のversion改訂注記・§1〜§9構成・起点`49bf3ad`・M2-C1/activation commit用語対応注記〕をReadで確認） (2) `docs/m2-design-confirmation-plan.md` が Phase 1〜4の記録・「M2-A/B開始前の確定事項」1・2の確定文言（2026-08-10・ユーザー決定）・「追記: M2-0完了実績とM2-A引き継ぎ（2026-08-10）」節（merge `5735cc5`・375/0・Issue #9・repo保存決定）をすべて含む (3) 変更が docs/ 2ファイル新規追加＋STATE.md更新のみ（hooks・tests・risk-rules・settings・skills・agents・commands・CLAUDE.md・README・template類は無変更） (4) `sh -n` 3スクリプト exit 0＋フルスイート 375 passed / 0 failed / exit 0（コード無変更の回帰確認） (5) commit成立後、新HEADをclean scratch worktreeへ展開しフルスイート再実行で375/0を確認する。※review-gate-stateブロックは`/review-pack`手順7で本サイクル確定値へ更新される（それまで前サイクル値のまま置く）
   - 受け入れ基準（ユーザー承認時点＝実装着手前に確定・2026-08-08。提案した最小修正案の一部としてユーザーが原文のまま承認。STATE.mdへの転記は結果確定後だが、基準の内容自体は実装後に変更していない）:
     1. 変更が`tests/run-gate-tests.sh`の`b1gate`呼び出し2箇所（`$1`引数の値のみ）と説明コメントに限定される
     2. `sh -n`が対象ファイルでexit 0
@@ -226,6 +227,8 @@
 | B1-fix-PR8-harness: commit後のscratch worktree検証（ユーザー要件。B-1がworking treeでは検出されずPR-head実木でのみ顕在化した経緯を踏まえた確認） | commit `0a3c9f8`（親`d088ab1`）を`git worktree add --detach`でscratch worktreeへ展開し、`sh -n`（classify-risk.sh/commit-review-gate.sh/run-gate-tests.sh）exit 0確認後にフルスイート実行。**375 passed / 0 failed / exit 0**（working tree実行結果と完全一致）。修正前に失敗していた`M1A-B1 gate stdout bit 同一: git commit -m "msg"`・`同: 証跡なし commit（G2相当）`および対応するstderr/exit一致ケースがすべて`ok`であることを個別確認。検証後にscratch worktreeを`git worktree remove --force`で削除、メインworking treeがcleanであることを再確認 | - | 2026-08-08 19:05頃 |
 | B1-fix-PR8-harness-doc-close: `/review-pack`手順5: 初回Verifier（H1=`d067b86fe6aba2fb87e984217a07509acba647dc`・risk_floor/risk_final=L0のためReviewer対象外） | passed: true（consistency 10/10・completeness 10/10・executability 10/10）。improvements 0件・critical_errors 0件。本ターン定義の受け入れ基準7項目（review-gate-stateマーカー1組のみ存在／B1-fixフェーズ`[x]`完了・commit `0a3c9f8`・scratch worktree 375/0が本文明記／検証履歴表がH1・H2・scratch worktree行を具体的根拠付きで記載／次に再開すべき地点がHEAD=`0a3c9f8`・未完了作業なし・push等未実施と整合／success-log.md追記が既存行無改変で正確に要約／push・merge・Issue・M2-Aの誤った実施記述なし／STATE.md各節間の内部整合）すべて確認済み | 1回目（本サイクルVerifier実行1/1。risk_final=L0のためReviewer実行なし） | 2026-08-08 19:20頃 |
 | B1-fix-PR8-harness-doc-close: `/review-pack`再起動サイクル・初回Verifier（H1=`5a529a80341cce27faac7f571c2338490b5ce2eb`。旧H1サイクルはcommit時のFR-09拒否——`reviewer_verdict`行の括弧書き注記が`approve/approve_with_changes/reject/none`の厳密単独一致に違反——を受け、証跡破棄・該当行修正（`none`単独へ）のうえ最初から再実行したもの） | passed: true（syntax/consistency/completeness/executability 4観点10/10）。improvements 0件・critical_errors 0件。旧サイクルと同一の7基準に加え、review-gate-stateブロック7キーが`- <key>: <値>`形式で1行1件・enum値（risk_floor/risk_final=L0単独・verifier_passed=true単独・reviewer_verdict=none単独、行末の括弧書き等の付加テキストなし）であることをGrepで厳密確認する基準8を追加し、すべて確認済み | 1回目（本再起動サイクルVerifier実行1/1。risk_final=L0のためReviewer実行なし。前サイクルの実行回数とは別カウント——前サイクルはcommit拒否によりREADY証跡ごと破棄されたため） | 2026-08-08 19:35頃 |
+| M2-plan-archive: 配置後の事前verifier（docs/2ファイル＋STATE.md。`/review-pack`起動前のタスクレベル検証） | passed: true（consistency/completeness/executability 3観点10/10・improvements 0件・critical_errors 0件）。基準(1) `docs/m2-replan.md`のv1.2内容整合（改訂注記・M2-C用語対応注記・起点`49bf3ad`・§1〜§9構成）／基準(2) `docs/m2-design-confirmation-plan.md`の必須要素（Phase 1〜4記録・確定事項1〜3の確定文言〔1・2は2026-08-10ユーザー決定〕・追記節のmerge `5735cc5`／375/0／Issue #9／repo保存決定）／基準(3) 変更範囲がdocs/2ファイル新規＋STATE.md更新のみ（Glob実測でdocs/配下2ファイルのみ確認）／STATE.md内部整合（review-gate-stateブロックが前サイクル値のままであることは仕様どおりと判定）をすべて確認。基準(4)はメイン実測で充足（`sh -n`3スクリプトexit 0・フルスイート375 passed/0 failed/exit 0）。基準(5)はcommit成立後に実施 | 1回目（タスクレベル。`/review-pack`サイクルの実行回数とは別枠） | 2026-08-10 02:05頃 |
+| M2-plan-archive: `/review-pack`手順5: 初回Verifier（H1=`eedde3fd6717ae9a49af3c2f67ea89e7f1b11da0`）→初回Reviewer-full（risk_floor/risk_final=L2のためreviewer-full） | verifier passed: true（syntax/logic/security/consistency 4観点10/10・improvements 0件・critical_errors 0件）。reviewer-full: verdict approve_with_changes・critical_findings 0件・recommended_level L2（elevation_required false）・confidence medium・reviewed_diff_hash=H1一致・needs_human_review/needs_external_review 双方false・rollback.possible true。warning 3件（非blocking。①docs/2新規ファイルが`.claude/change-log.txt`に未記録——`log-change.sh`のPostToolUseマッチャが`Edit\|Write`のみでBash（`cp`）経由のファイル作成を捕捉しない構造的な穴が本diffで顕在化したもの。`log-change.sh`自体は本diffで無変更・原因はこのdiff固有の欠陥ではなく、本タスクのスコープ外の保守課題として記録するに留める ②タスク入力側の行数表記が実ファイルと1行ずれ（成果物自体は無欠陥） ③`docs/`新設がCLAUDE.md §6構成図に未反映だが受け入れ基準(3)の「CLAUDE.md無変更」と整合し現時点では正しい挙動）。unresolved_issues 4件（read-only制約による既知の限界: アップロード原本とのバイト一致はメイン側cmp実測に委譲・GitHub側事実の独立検証不能・テスト再実行なし・change-log欠落の根本原因は推定に留まる） | 1回目（本サイクルReviewer実行1/3） | 2026-08-10 02:20頃 |
 
 ## 発生エラーと対処
 
@@ -330,10 +333,10 @@ STATE.mdのreview-gate-stateブロックはフェーズごとに上書きされ�
 
 ## 次に再開すべき地点
 
-- **現在の状態（2026-08-08確定・最新）**: M2-0（Issue #4）・B1-fix-PR8-harness（PR #8 blocking finding B-1）ともに実装・全検証・commitが完了している。HEAD = `0a3c9f8`（親`d088ab1`。working tree clean）。working tree実行・scratch worktreeでのclean-tree実行の両方でフルスイート375 passed/0 failed/exit 0を確認済み（詳細は「B1-fix-PR8-harness」フェーズ・検証履歴表を参照）。`.git/claude-review-gate.json`はB1-fix commit時点のREADY証跡のまま残置しているが、次にstaged差分が発生すればhash不一致により自動的に無効化される（手書きで消す必要はない）。**push・merge・Issue更新・M2-A着手はいずれも本タスクでは認可範囲外のまま未実施**。再開時の判断:
-  1. 新規の作業指示がなければ、ここが本タスクの終端。ユーザーからの新規指示（push実行・PR #8の状態確認・M2-A着手の認可等）を待つ
-  2. 新たにファイルを変更する場合は、まず`git status --short`でclean（HEAD=`0a3c9f8`のまま）であることを確認してから着手する
-  3. commitを伴う新規作業は、これまでと同じ手順（STATE.mdへ受け入れ基準を事前記入→実装→verifier→ユーザーが`/review-pack`を手動起動→READY→commit）に従う
+- **現在の状態（2026-08-10確定・最新）**: M2-0・B1-fixは**PR #8としてmainへマージ済み**（merge commit `5735cc5`・3コミット保持・375/0をclean scratch worktreeでも確認済み）。Issue #9起票済み。現在は**M2-plan-archive**（設計正本2文書のdocs/保存・doc-only）を実施中: designated branch `claude/m2-design-confirmation-baidlm`をorigin/main（`5735cc5`）から再起動済みで、docs/2ファイル＋本STATE.md更新をstage→`/review-pack`（ユーザー手動起動）→READY→commit（gate ask）→push→新PR→merge の順に進める（各ステップともユーザーの明示認可による）。再開時の判断:
+  1. `git log -1 --oneline`と`git status --short`で現在地を確認する。docs/2ファイルが未commitなら、staged状態と`git rev-parse --git-path claude-review-gate.json`の有無・hash一致（`jq -r '.staged_diff_hash'` vs `sh .claude/hooks/classify-risk.sh | jq -r '.staged_diff_hash'`）で「/review-pack起動待ち」か「READY済みcommit待ち」かを判別する
+  2. commit成立済みなら、受け入れ基準(5)のscratch worktree検証（375/0）→push→新PR作成→merge（いずれも個別の明示認可が必要）
+  3. merge完了後は本タスク終端。**M2-Aはfresh sessionで開始する**（STATE.mdはtemplateからリセット。引き継ぎ物: `docs/m2-replan.md`・`docs/m2-design-confirmation-plan.md`（repo内・merge後はclone参照可）＋`m2a-handoff.md`＋改訂版指示文）
 - B1-fix-PR8-harness契約（2026-08-08完了・参考として保持）: 実装・working tree検証（375/0）→verifier→ユーザーが`/review-pack`を手動起動しH1→H2の全サイクル完遂（初回Reviewerは1回目がセッション実行基盤のワーカー再起動により中断・2回目で取得）→READY・証跡生成→commit `0a3c9f8`→scratch worktreeでのclean-tree検証（375/0）まですべて完了。再開判断が必要になった場合の一般手順（GATE存在確認→hash照合→drift有無での分岐）はM2-0契約と同型のため以下のM2-0契約を参照
 - **M2-0本体の再開契約（2026-08-06確定。commit `d088ab1`で充足済み・参考として保持。機構はB1-fix契約と同一だが対象diff・対象フェーズが異なる）**: point-in-time記述ではなく状態条件で決める。M2-0（Issue #4: repository context anchoring）の実装・全検証は完了済み。
   1. `GATE=$(git rev-parse --git-path claude-review-gate.json); [ -f "$GATE" ]` で証跡の有無を確認する
