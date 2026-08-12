@@ -165,4 +165,5 @@ tests/run-gate-tests.sh        # リスク判定・commitゲートのfixtureテ�
 - リスク下限は `classify-risk.sh` が staged diff から機械算出する。エージェントは下限より下げられない。Reviewer は最終リスクレベルに連動する: L0=なし / L1=reviewer-lite / L2=reviewer-full / L3=常にエスカレーション（Phase 1 では commit 不可）
 - commit には review-gate 証跡が必要。証跡は、利用者が対象パスを**明示的に git add した後**に `/review-pack` を手動起動して生成する（Claude による自動起動は不可）。review-pack 運用で `git add .` / `git add -A` は使用しない
 - 全条件成立でも commit は自動許可されず、権限確認（ask）で人間が判断する
+- ESCALATED のうち needs_human_review 起因で陽性証明が成立する場合のみ、Formal Human Resolution（人間が自身のターミナルで作成する resolution・subject 束縛・待機中 Bash lockdown）により commit へ進める正式経路がある（Issue #11。詳細は README と review-pack SKILL）
 - 詳細仕様は README・`.claude/skills/review-pack/SKILL.md`・各スクリプトを参照する（本ファイルへ詳細を重複記載しない）
