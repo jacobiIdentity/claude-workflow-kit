@@ -13,9 +13,11 @@ REPO="$TMP/repo"
 mkdir -p "$REPO/.claude/hooks" "$REPO/.claude/agents" "$REPO/.claude/skills/review-pack"
 cp "$KIT_ROOT/.claude/hooks/classify-risk.sh" "$REPO/.claude/hooks/" || exit 1
 cp "$KIT_ROOT/.claude/hooks/commit-review-gate.sh" "$REPO/.claude/hooks/" || exit 1
+cp "$KIT_ROOT/.claude/hooks/guard-skip-file.sh" "$REPO/.claude/hooks/" || exit 1
 cp "$KIT_ROOT/.claude/risk-rules.json" "$REPO/.claude/" || exit 1
 printf '{}\n' > "$REPO/.claude/settings.json"
-# policy set（M1-B）の残り4ファイル。存在・stage 0・mode 検証の対象を fixture 内で再現する
+# policy set（M1-B・Issue #11でguard-skip-file.shを追加し計9ファイル）の残り4ファイル。
+# 存在・stage 0・mode 検証の対象を fixture 内で再現する
 cp "$KIT_ROOT/.claude/skills/review-pack/SKILL.md" "$REPO/.claude/skills/review-pack/" || exit 1
 cp "$KIT_ROOT/.claude/agents/reviewer-lite.md" "$REPO/.claude/agents/" || exit 1
 cp "$KIT_ROOT/.claude/agents/reviewer-full.md" "$REPO/.claude/agents/" || exit 1
@@ -33,6 +35,10 @@ git commit -q -m seed
 
 # review-gate 証跡の保存先（本体スクリプトと同じ解決方法）
 GATE_PATH=$(git rev-parse --git-path claude-review-gate.json)
+# Issue #11: Formal Human Resolution の保存先（fixture内。本テストスクリプトは
+# `sh tests/run-gate-tests.sh` の単発起動で実行されるため、ファイル内のパス参照・
+# 生成・削除にハーネスの guard は適用されない）
+RES_PATH=$(git rev-parse --git-path claude-human-resolution.json)
 
 PASS=0
 FAIL=0
@@ -67,6 +73,7 @@ reset_stage() {
   git reset -q --hard HEAD
   git clean -qfd
   rm -f "$GATE_PATH"
+  rm -f "$RES_PATH"
 }
 
 # write_gate <risk_final> <verifier_passed> <verdict|""> <cfc> <ext_required> <ext_completed> <hash>
@@ -106,6 +113,69 @@ lines_file() { # $1=path $2=行数
     printf 'line %s\n' "$i" >> "$1"
     i=$((i + 1))
   done
+}
+
+# ---- Issue #11 HR節ヘルパー ----
+# write_hdr_gate <floor> <final> <verdict> <cfc> <ext_required> — HDR証跡(schema_version 2)。
+# bindings は live classify から取得し、環境変数で個別上書き可（stale/改変系 fixture 用）:
+#   HDRB_SUBJ/HDRB_PV/HDRB_HEAD/HDRB_OFMT/HDRB_ROOT（bindings）・HDR_STATUS（gate_status）・
+#   HDR_SCHEMA（schema_version）・HDR_NH/HDR_NE（escalation bool）・HDR_CLASS（classification）・
+#   HDR_TS（generated_at。別cycle証跡の再現用）
+write_hdr_gate() {
+  HG_CLS=$(classify)
+  HG_H=$(printf '%s' "$HG_CLS" | jq -r .staged_diff_hash)
+  jq -n \
+    --arg rf "$1" --arg rl "$2" --arg vd "$3" --argjson cf "$4" --argjson er "$5" \
+    --arg h "$HG_H" \
+    --arg bsub "${HDRB_SUBJ:-$(printf '%s' "$HG_CLS" | jq -r .review_subject_hash)}" \
+    --arg bpv "${HDRB_PV:-$(printf '%s' "$HG_CLS" | jq -r .policy_version)}" \
+    --arg bhead "${HDRB_HEAD:-$(printf '%s' "$HG_CLS" | jq -r .base_head)}" \
+    --arg bofmt "${HDRB_OFMT:-$(printf '%s' "$HG_CLS" | jq -r .object_format)}" \
+    --arg broot "${HDRB_ROOT:-$(printf '%s' "$HG_CLS" | jq -r .execution_root)}" \
+    --arg gs "${HDR_STATUS:-ESCALATED_HUMAN_REQUIRED}" \
+    --argjson sv "${HDR_SCHEMA:-2}" \
+    --argjson nh "${HDR_NH:-true}" --argjson ne "${HDR_NE:-false}" \
+    --arg cl "${HDR_CLASS:-HUMAN_DECISION_REQUIRED}" \
+    --arg ts "${HDR_TS:-2026-08-11T00:00:00Z}" \
+    '{schema_version: $sv, gate_status: $gs, phase: "test", risk_floor: $rf, risk_final: $rl,
+      elevation_reason: [], staged_diff_hash: $h,
+      bindings: {review_subject_hash: $bsub, policy_version: $bpv, base_head: $bhead,
+                 object_format: $bofmt, execution_root: $broot},
+      verifier: {passed: true, confidence: "high"},
+      reviewer: {verdict: $vd, critical_findings_count: $cf, unresolved_count: 4,
+                 confidence: "low", reviewed_diff_hash: $h},
+      escalation: {classification: $cl, needs_human_review: $nh, needs_external_review: $ne,
+                   reviewer_execution_index: 2},
+      external_review: {required: $er, completed: false},
+      generated_at: $ts}' > "$GATE_PATH"
+}
+# write_resolution — 現在の証跡へ束縛された resolution を作成（人間のターミナル操作の fixture
+# 再現。本スクリプトはファイル内実行のためハーネス guard の対象外）。env で上書き可:
+#   RES_EH（evidence_hash）/ RES_ACTION / RES_SCHEME / RES_SCHEMA
+write_resolution() {
+  WR_EH="${RES_EH:-$(jq -cS . "$GATE_PATH" | git hash-object --stdin)}"
+  WR_OF=$(git rev-parse --show-object-format 2>/dev/null || echo sha1)
+  jq -n --argjson sv "${RES_SCHEMA:-1}" --arg a "${RES_ACTION:-approve}" \
+        --arg eh "$WR_EH" --arg hs "${RES_SCHEME:-git-blob-$WR_OF}" \
+    '{schema_version: $sv, action: $a, evidence_hash: $eh, hash_scheme: $hs}' > "$RES_PATH"
+}
+# guard_fp <tool_name> <file_path> → guard の exit code（構造化ツール検査）
+guard_fp() {
+  jq -n --arg t "$1" --arg p "$2" '{tool_name: $t, tool_input: {file_path: $p}}' \
+    | sh .claude/hooks/guard-skip-file.sh >/dev/null 2>&1
+  echo $?
+}
+# guard_nb <notebook_path> → guard の exit code（NotebookEdit の notebook_path 検査）
+guard_nb() {
+  jq -n --arg p "$1" '{tool_name: "NotebookEdit", tool_input: {notebook_path: $p}}' \
+    | sh .claude/hooks/guard-skip-file.sh >/dev/null 2>&1
+  echo $?
+}
+# guard_cmd <command> → guard の exit code（Bash コマンド検査）
+guard_cmd() {
+  jq -n --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}' \
+    | sh .claude/hooks/guard-skip-file.sh >/dev/null 2>&1
+  echo $?
 }
 
 # ============ classify-risk.sh ============
@@ -921,7 +991,7 @@ rm -rf relbin
 C3_CLS=$(grep -c 'git_s ' .claude/hooks/classify-risk.sh)
 C3_GATE=$(grep -c 'git_s ' .claude/hooks/commit-review-gate.sh)
 check "M1A-C3 git_s 呼び出し数 classify=17（M1-A基準9 + M1-B policy検証3[policyループ内ls-files/policy manifest用ls-files-s-z/policy_version用hash-object] + M1-B identity4[subject manifest用diff --raw -z/review_subject_hash用hash-object/base_head用rev-parse HEAD/object_format用rev-parse --show-object-format] + M2-0 resolve_root()導入により+1[関数内2呼出−旧ROOT代入の1呼出]）" "17" "$C3_CLS"
-check "M1A-C3 git_s 呼び出し数 gate=6（M2-0 resolve_root()導入により+1）" "6" "$C3_GATE"
+check "M1A-C3 git_s 呼び出し数 gate=11（M2-0 resolve_root()導入により+1、Issue #11で+5=lockdownのGP/RP/HEAD解決3・HDR経路のresolution保存先解決1・証跡canonical hash計算1。検査対象呼び出し箇所の実増の反映であり弱体化ではない）" "11" "$C3_GATE"
 # finding⑤: 裸 git 起動の監査を精密化 — git_s 定義本体と行全体コメントを除外した上で、
 # 行頭・コマンド置換 $( ・バッククォート・パイプ・演算子（&& || ;）直後の裸 `git ` 起動を検出する
 # （旧版は && / ; / バッククォート後の起動を見逃していた）。期待件数は厳密に 0。
@@ -1427,6 +1497,7 @@ REPOB="$TMP/repoB"
 mkdir -p "$REPOB/.claude/hooks" "$REPOB/.claude/agents" "$REPOB/.claude/skills/review-pack"
 cp "$KIT_ROOT/.claude/hooks/classify-risk.sh" "$REPOB/.claude/hooks/" || exit 1
 cp "$KIT_ROOT/.claude/hooks/commit-review-gate.sh" "$REPOB/.claude/hooks/" || exit 1
+cp "$KIT_ROOT/.claude/hooks/guard-skip-file.sh" "$REPOB/.claude/hooks/" || exit 1
 cp "$KIT_ROOT/.claude/risk-rules.json" "$REPOB/.claude/" || exit 1
 printf '{}\n' > "$REPOB/.claude/settings.json"
 cp "$KIT_ROOT/.claude/skills/review-pack/SKILL.md" "$REPOB/.claude/skills/review-pack/" || exit 1
@@ -1491,6 +1562,211 @@ check "M20-8d anchored+不一致（repoA≠repoB）もok:false" "false" "$MISMAT
 
 rm -rf "$REPOA" "$REPOB"
 reset_stage
+
+# ============ Issue #11: Formal Human Resolution（HR節） ============
+# threat model: cooperative / non-adversarial agent への workflow enforcement を fixture で
+# 固定する（確定Plan §12）。各 fixture の「守るもの」をコメントで明示する。
+# 註: 陽性conjunctionのうち rollback.possible==true と手続き的除外（実行3回不安定・同一重大
+# 指摘2回連続）は SKILL 側の証跡生成条件（手順規律）であり gate 証跡には現れないため、
+# gate fixture ではなく HR-32 の文書 grep（SKILL への明記）で固定する。
+
+# --- HR-G: guard Layer 1/2（守るもの: AI自己申告の排除＝resolution/証跡への agent 書き込み遮断） ---
+check "HR-1a Write→resolutionはguardが拒否（Layer 1 basename）" "2" "$(guard_fp Write ".git/claude-human-resolution.json")"
+check "HR-1b Bashコマンド中のresolution名は常時拒否（Layer 2）" "2" "$(guard_cmd "cat .git/claude-human-resolution.json")"
+check "HR-2a Edit→resolution（絶対パス）も拒否" "2" "$(guard_fp Edit "$REPO/.git/claude-human-resolution.json")"
+check "HR-2b NotebookEdit notebook_path→resolutionも拒否" "2" "$(guard_nb ".git/claude-human-resolution.json")"
+check "HR-2c 相対../経由でもbasename一致で拒否" "2" "$(guard_fp Write "sub/../.git/claude-human-resolution.json")"
+check "HR-3a Bash rm→resolution拒否（消去防止）" "2" "$(guard_cmd "rm -f .git/claude-human-resolution.json")"
+check "HR-3b Bash mv→resolution拒否（すり替え防止）" "2" "$(guard_cmd "mv x.json .git/claude-human-resolution.json")"
+check "HR-30a Write→claude-review-gate.json拒否（証跡改変によるlockdown解除の封鎖）" "2" "$(guard_fp Write ".git/claude-review-gate.json")"
+check "HR-30b Edit→claude-review-gate.json（絶対パス）拒否（同上）" "2" "$(guard_fp Edit "$GATE_PATH")"
+check "HR-Ga 対照: 通常ファイルWriteはguard通過（過剰遮断の防止）" "0" "$(guard_fp Write "notes.txt")"
+check "HR-Gb skip-state-check遮断の既存動作維持" "2" "$(guard_cmd "touch .claude/skip-state-check")"
+# [ -L ]規則: dirname→pwd -P は最終成分の symlink を解決しないため、一律 deny で塞ぐ
+ln -s seed.txt liar.json
+check "HR-27a 最終成分がsymlinkの構造化ツール書き込みは対象を問わず拒否（[ -L ]規則）" "2" "$(guard_fp Write "liar.json")"
+rm -f liar.json
+ln -s .git gitlink
+check "HR-27b symlinkディレクトリ経由のresolutionもbasename一致で拒否" "2" "$(guard_fp Write "gitlink/claude-human-resolution.json")"
+rm -f gitlink
+
+# --- HR-P: 正常系（守るもの: HDR証跡＋有効resolution＋binding全一致→askへの正の到達保証） ---
+reset_stage
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-19a HDR正常系 → ask" "ask|0" "$(gate 'git commit -m "msg"')"
+reason_has "HR-19b ask文言にhuman-resolved経路の明示" "Formal Human Resolution"
+reason_has "HR-19c ask文言に「このゲートは人間承認の代わりにはなりません」" "このゲートは人間承認の代わりにはなりません"
+check "HR-21 証跡のreviewer.confidence=lowのままaskへ到達（confidence非キー原則）" "low" "$(jq -r .reviewer.confidence "$GATE_PATH")"
+
+# --- HR-L: Layer 3 lockdown（守るもの: HDR待機中のagent Bash凍結・allowlist方式の難読化耐性） ---
+# 直前のHR-Pのfresh HDR証跡が残った状態＝lockdown発動中
+check "HR-23a lockdown中のrm（証跡対象）→deny（脱出経路封鎖）" "deny|0" "$(gate 'rm -f .git/claude-review-gate.json')"
+check "HR-23b lockdown中のrm（一般ファイル）→deny" "deny|0" "$(gate 'rm -f somefile.txt')"
+check "HR-24a lockdown中のgit add→deny（subject凍結）" "deny|0" "$(gate 'git add x.txt')"
+check "HR-24b lockdown中のリダイレクト→deny" "deny|0" "$(gate 'echo x > f.txt')"
+check "HR-24c lockdown中の変数展開組み立て→deny（allowlist方式のため難読化は定義上無効）" "deny|0" "$(gate 'a=b; touch "$a.json"')"
+check "HR-24d lockdown中の複数行コマンド→deny（行単位regex照合のすり抜け防止）" "deny|0" "$(gate "$(printf 'git status\nrm -f x')")"
+check "HR-24e lockdown中の非gitコマンド全般→deny" "deny|0" "$(gate 'ls -la')"
+check "HR-25a lockdown中もgit statusは通過（正常運用の維持）" "none|0" "$(gate 'git status')"
+check "HR-25b lockdown中もgit status --shortは通過" "none|0" "$(gate 'git status --short')"
+check "HR-25c lockdown中もgit diff --cached --statは通過" "none|0" "$(gate 'git diff --cached --stat')"
+
+# --- HR-M: 片側存在・孤立（守るもの: 人間actionなしでは通らない・分割事前偽造の封鎖） ---
+reset_stage
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+write_hdr_gate L0 L2 approve_with_changes 0 false
+check "HR-14a HDR証跡あり・resolutionなし→deny（人間action必須）" "deny|0" "$(gate 'git commit -m "msg"')"
+reason_has "HR-14b 理由文にresolution不在の旨" "claude-human-resolution"
+write_resolution
+rm -f "$GATE_PATH"
+check "HR-26a 孤立resolution状態での証跡生成様Bash→deny（分割事前偽造の封鎖）" "deny|0" "$(gate 'jq -n {} > .git/claude-review-gate.json')"
+check "HR-26b 孤立resolution状態での任意Bash→deny" "deny|0" "$(gate 'touch marker.txt')"
+check "HR-13 孤立resolutionでcommit→deny（証跡なし）" "deny|0" "$(gate 'git commit -m "msg"')"
+rm -f "$RES_PATH"
+check "HR-28c resolutionの削除（人間削除のfixture再現）でlockdown解除" "none|0" "$(gate 'touch cleared.txt')"
+reset_stage
+
+# --- HR-S: stale/流用の失効（守るもの: subject/policy/base/証跡内容/execution_rootへの束縛） ---
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+lines_file extra.md 3; git add extra.md
+check "HR-4 resolution作成後のstage変更→deny（subject失効）" "deny|0" "$(gate 'git commit -m "msg"')"
+reset_stage
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+HDRB_PV=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-5a policy_version不一致→deny（policy変更で失効）" "deny|0" "$(gate 'git commit -m "msg"')"
+reason_has "HR-5b 理由文にpolicyの旨" "policy"
+reset_stage
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+HDRB_HEAD=1111111111111111111111111111111111111111 write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-6 base_head不一致→deny（HEAD移動で失効＝単回性）" "deny|0" "$(gate 'git commit -m "msg"')"
+check "HR-28a stale証跡（base不一致）ではlockdown非発動（過剰凍結の防止）" "none|0" "$(gate 'touch free.txt')"
+reset_stage
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+HDRB_ROOT=/nonexistent/other-root write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-31a execution_root不一致（異なるexecution_rootを持つrepo/worktreeへの流用）→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+reason_has "HR-31b 理由文にexecution rootの旨" "execution"
+reset_stage
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+jq '.reviewer.unresolved_count = 9' "$GATE_PATH" > "$TMP/hr-g2.json" && mv "$TMP/hr-g2.json" "$GATE_PATH"
+check "HR-7a 証跡のcanonical意味内容変更→deny（evidence_hash失効）" "deny|0" "$(gate 'git commit -m "msg"')"
+reason_has "HR-7b 理由文にcanonical evidence identityの旨" "canonical"
+reset_stage
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+HDR_TS=2026-08-11T11:11:11Z write_hdr_gate L0 L2 approve_with_changes 0 false
+check "HR-9 別証跡（再生成）への旧resolution流用→deny（cross-cycle流用拒否）" "deny|0" "$(gate 'git commit -m "msg"')"
+reset_stage
+
+# --- HR-U: enum外・欠損・違反のfail-closed（守るもの: positive allowlist・UNKNOWN deny） ---
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+HDR_STATUS=WEIRD_STATUS write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-11a 未知gate_status→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+HDR_SCHEMA=3 write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-11b schema_version 3→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+HDR_SCHEMA=1 write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-11c schema 1＋gate_status付きの不正組合せ→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+HDR_CLASS=SOMETHING_ELSE write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-10a classification≠HUMAN_DECISION_REQUIRED→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 approve_with_changes 0 false
+jq 'del(.escalation)' "$GATE_PATH" > "$TMP/hr-g3.json" && mv "$TMP/hr-g3.json" "$GATE_PATH"
+write_resolution
+check "HR-10b escalation欠損（UNKNOWN相当）→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+HDR_NH=false write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-3c needs_human_review=false→deny（conjunction違反）" "deny|0" "$(gate 'git commit -m "msg"')"
+HDR_NE=true write_hdr_gate L0 L2 approve_with_changes 0 false
+write_resolution
+check "HR-3d needs_external_review=true→deny（human resolution対象外）" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 approve_with_changes 0 false
+RES_ACTION=maybe write_resolution
+check "HR-11d resolution action未知値→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 approve_with_changes 0 false
+RES_SCHEME=git-blob-sha256x write_resolution
+check "HR-29 hash_scheme不一致→deny（自己記述整合）" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 approve_with_changes 0 false
+RES_SCHEMA=2 write_resolution
+check "HR-11e resolution schema_version≠1→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 approve_with_changes 0 false
+printf 'not json' > "$RES_PATH"
+check "HR-12 malformed resolution→deny" "deny|0" "$(gate 'git commit -m "msg"')"
+
+# --- HR-O: override禁止（守るもの: L3/external/technical blocking findingの迂回不能性） ---
+write_hdr_gate L0 L3 approve_with_changes 0 false
+write_resolution
+check "HR-15a risk_final=L3は有効resolutionがあってもdeny" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 approve_with_changes 0 true
+write_resolution
+check "HR-16 external_review.required=trueは有効resolutionがあってもdeny" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 approve_with_changes 1 false
+write_resolution
+check "HR-17 critical_findings≥1は有効resolutionがあってもdeny" "deny|0" "$(gate 'git commit -m "msg"')"
+write_hdr_gate L0 L2 reject 1 false
+write_resolution
+check "HR-18 verdict=rejectは有効resolutionがあってもdeny" "deny|0" "$(gate 'git commit -m "msg"')"
+reset_stage
+printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' > hr-sec.txt; git add hr-sec.txt
+write_state test L3 L3 true approve_with_changes none dummy
+write_hdr_gate L3 L3 approve_with_changes 0 false
+write_resolution
+check "HR-15b 床L3（実秘密情報）は証跡・resolutionの有無に関わらずdeny" "deny|0" "$(gate 'git commit -m "msg"')"
+reset_stage
+
+# --- HR-R: rollback安全性・FR-09維持・解除（守るもの: revert後の安全側復帰・既存検査の全有効性） ---
+lines_file docs.md 10; git add docs.md
+write_state test L0 L2 true approve_with_changes none dummy
+write_hdr_gate L0 L2 approve_with_changes 0 false
+if jq -e '.schema_version == 1' "$GATE_PATH" >/dev/null 2>&1; then
+  bad "HR-20 schema2証跡は旧gateのschema==1検査で自動deny（rollback安全性）"
+else
+  ok "HR-20 schema2証跡は旧gateのschema==1検査で自動deny（rollback安全性）"
+fi
+write_resolution
+git rm -q --cached STATE.md 2>/dev/null; git checkout -q -- STATE.md 2>/dev/null || true
+check "HR-33a HDR経路でもFR-09（staged STATE.md必須）は有効" "deny|0" "$(gate 'git commit -m "msg"')"
+write_state test L0 L2 true approve_with_changes none dummy
+check "HR-33b STATE再stage後は再びask（FR-09共通検査の共有）" "ask|0" "$(gate 'git commit -m "msg"')"
+check "HR-33c HDR経路でもサポート外commit形式はdeny" "deny|0" "$(gate 'git commit -a -m "msg"')"
+printf '\n' >> .claude/risk-rules.json
+check "HR-33d HDR経路でも統制ファイルのstaged/worktree不一致はdeny" "deny|0" "$(gate 'git commit -m "msg"')"
+git checkout -q -- .claude/risk-rules.json
+git commit -q -m "hr-release-test"
+check "HR-28b commit成立（HEAD移動）でlockdown解除・通常Bash復帰" "none|0" "$(gate 'touch after.txt')"
+reset_stage
+
+# --- HR-D: 文書・POLICY_SET固定（守るもの: AC21の機械的検証・確定事項1の登録規則） ---
+check "HR-32a READMEにESCALATED_HUMAN_REQUIRED記載" "0" "$(grep -q 'ESCALATED_HUMAN_REQUIRED' "$KIT_ROOT/README.md"; echo $?)"
+check "HR-32b READMEにresolutionファイル名記載" "0" "$(grep -q 'claude-human-resolution.json' "$KIT_ROOT/README.md"; echo $?)"
+check "HR-32c READMEにthreat model（workflow enforcement）記載" "0" "$(grep -q 'workflow enforcement' "$KIT_ROOT/README.md"; echo $?)"
+check "HR-32d READMEにthreat model（security isolation非保証）記載" "0" "$(grep -q 'security isolation' "$KIT_ROOT/README.md"; echo $?)"
+check "HR-32e SKILLにHDR証跡生成仕様（schema_version 2）記載" "0" "$(grep -q 'ESCALATED_HUMAN_REQUIRED' "$KIT_ROOT/.claude/skills/review-pack/SKILL.md"; echo $?)"
+check "HR-32f SKILLにresolutionスキーマ記載" "0" "$(grep -q 'hash_scheme' "$KIT_ROOT/.claude/skills/review-pack/SKILL.md"; echo $?)"
+check "HR-32g SKILLにthreat model記載" "0" "$(grep -q 'security isolation' "$KIT_ROOT/.claude/skills/review-pack/SKILL.md"; echo $?)"
+check "HR-32h SKILLに生成条件rollback.possible==true記載（手続き規律の固定）" "0" "$(grep -q 'rollback.possible==true' "$KIT_ROOT/.claude/skills/review-pack/SKILL.md"; echo $?)"
+check "HR-34a classify内のguard-skip-file.sh登録が3箇所（POLICY_SET・expected_mode・ls-files）" "3" "$(grep -c 'guard-skip-file.sh' .claude/hooks/classify-risk.sh)"
+check "HR-34b fixture上のguard-skip-file.sh mode=100755（POLICY_SET mode検証の対象）" "100755" "$(git ls-files -s .claude/hooks/guard-skip-file.sh | awk '{print $1}')"
 
 # ============ 結果 ============
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

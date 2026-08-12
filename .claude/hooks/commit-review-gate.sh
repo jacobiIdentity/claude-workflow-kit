@@ -40,29 +40,79 @@ printf '%s' "$INPUT" | jq -e . >/dev/null 2>&1 \
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
 [ -n "$CMD" ] || emit deny "フック入力に tool_input.command がありません（fail-closed）。"
 
-# --- スコープ判定: git / gh の起動を含まないコマンドは一切妨げない ---
-SCOPE_RE='(^|[^[:alnum:]_])(git|gh)([[:space:]]|$)'
-printf '%s\n' "$CMD" | grep -Eq "$SCOPE_RE" || exit 0
-
-# ===== ここから下は Git/gh スコープ。異常はすべて fail-closed =====
-
-# --- sanitized Git 実行環境（M1-A） ---
-# Git/gh スコープ確定後に PATH・env 実体・git 実体を単回捕捉し、以後の全 Git 呼び出しを
-# 呼び出し元プロセス環境（GIT_* 変数・system/global config）から遮断する。
+# --- sanitized Git 実行環境（M1-A。Issue #11 の lockdown 判定がスコープ判定より前に git を
+#     必要とするため、セットアップをここへ前倒しした） ---
+# PATH・env 実体・git 実体を単回捕捉し、以後の全 Git 呼び出しを呼び出し元プロセス環境
+# （GIT_* 変数・system/global config）から遮断する。
 # command -v は関数・alias・相対パスを返し得るため、絶対パス以外は fail-closed。
-# 非 Git/gh コマンドはこの検査より前（スコープ判定）で素通しされる。
+# 注意: env/git が解決できない環境では（jq 欠損時と同様に）全 Bash を fail-closed で拒否する。
 SANITIZED_PATH="$PATH"
 ENV_BIN=$(command -v env) \
-  || emit deny "env が見つからないため Git/gh 操作を拒否します（fail-closed）。"
+  || emit deny "env が見つからないため Bash 操作を拒否します（fail-closed）。"
 GIT_BIN=$(command -v git) \
-  || emit deny "git が見つからないため Git/gh 操作を拒否します（fail-closed）。"
-case "$ENV_BIN" in /*) : ;; *) emit deny "env が絶対パスに解決されないため Git/gh 操作を拒否します（fail-closed）。" ;; esac
-case "$GIT_BIN" in /*) : ;; *) emit deny "git が絶対パスに解決されないため Git/gh 操作を拒否します（fail-closed）。" ;; esac
+  || emit deny "git が見つからないため Bash 操作を拒否します（fail-closed）。"
+case "$ENV_BIN" in /*) : ;; *) emit deny "env が絶対パスに解決されないため Bash 操作を拒否します（fail-closed）。" ;; esac
+case "$GIT_BIN" in /*) : ;; *) emit deny "git が絶対パスに解決されないため Bash 操作を拒否します（fail-closed）。" ;; esac
 git_s() {
   "$ENV_BIN" -i PATH="$SANITIZED_PATH" LC_ALL=C \
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null \
     "$GIT_BIN" "$@"
 }
+
+# --- 厳格 commit allowlist（単一行のみ・shell-safe）。定義はここで単一化し、
+#     Issue #11 lockdown と後段の commit 判定の両方が同一 regex を参照する。
+#     完全アンカー＋文字クラス排除（D側: " \\ $ バッククォート／S側: '）により、
+#     変数展開・コマンド置換・エスケープ・引用の早期閉じ・リダイレクト・連結は
+#     allowlist 通過形からは実行できない ---
+ALLOW_D='^git commit -m "[^"\\$`]*"$'
+ALLOW_S="^git commit -m '[^']*'\$"
+
+# --- Issue #11 Layer 3: ESCALATED(HDR) 待機中の Bash lockdown（スコープ判定より前） ---
+# 条件: (HDR証跡が存在 ∧ bindings.base_head == 現HEAD) ∨ (resolution が存在 ∧ HDR証跡が不在)。
+# 待機中は positive allowlist（厳格 commit 形式・git status・git status --short・
+# git diff --cached --stat の4種のみ）以外の全 Bash を拒否する。allowlist 方式のため
+# 難読化は定義上無効。解除は人間の行為（commit 成立による HEAD 移動／証跡の人間削除）
+# でのみ起こる。cwd が git リポジトリ外の場合は判定対象の証跡が存在し得ないためスキップ。
+LOCK_GP=$(git_s rev-parse --git-path claude-review-gate.json 2>/dev/null) || LOCK_GP=""
+if [ -n "$LOCK_GP" ]; then
+  case "$LOCK_GP" in /*) : ;; *) LOCK_GP="$(pwd)/$LOCK_GP" ;; esac
+  LOCK_RP=$(git_s rev-parse --git-path claude-human-resolution.json 2>/dev/null) || LOCK_RP=""
+  case "$LOCK_RP" in ""|/*) : ;; *) LOCK_RP="$(pwd)/$LOCK_RP" ;; esac
+  HDR_PRESENT=0
+  HDR_FRESH=0
+  if [ -r "$LOCK_GP" ] \
+     && [ "$(jq -r '.gate_status // empty' "$LOCK_GP" 2>/dev/null)" = "ESCALATED_HUMAN_REQUIRED" ]; then
+    HDR_PRESENT=1
+    LOCK_BASE=$(jq -r '.bindings.base_head // empty' "$LOCK_GP" 2>/dev/null)
+    LOCK_HEAD=$(git_s rev-parse HEAD 2>/dev/null) || LOCK_HEAD=""
+    [ -n "$LOCK_BASE" ] && [ "$LOCK_BASE" = "$LOCK_HEAD" ] && HDR_FRESH=1
+  fi
+  LOCKDOWN=0
+  [ "$HDR_FRESH" -eq 1 ] && LOCKDOWN=1
+  [ "$HDR_PRESENT" -eq 0 ] && [ -n "$LOCK_RP" ] && [ -r "$LOCK_RP" ] && LOCKDOWN=1
+  if [ "$LOCKDOWN" -eq 1 ]; then
+    LOCK_NL='
+'
+    case "$CMD" in
+      *"$LOCK_NL"*) emit deny "ESCALATED(HDR) の Formal Human Resolution 待機中は複数行 Bash コマンドを実行できません（lockdown・fail-closed）。" ;;
+    esac
+    if printf '%s\n' "$CMD" | grep -Eq "$ALLOW_D" \
+       || printf '%s\n' "$CMD" | grep -Eq "$ALLOW_S" \
+       || [ "$CMD" = "git status" ] \
+       || [ "$CMD" = "git status --short" ] \
+       || [ "$CMD" = "git diff --cached --stat" ]; then
+      :
+    else
+      emit deny "ESCALATED(HUMAN_DECISION_REQUIRED) の Formal Human Resolution 待機中のため Bash を制限しています（許可: 厳格形式の git commit / git status / git status --short / git diff --cached --stat のみ）。承認する場合はユーザー自身のターミナルで resolution（claude-human-resolution.json）を作成し、破棄・再作業する場合はユーザー自身のターミナルで証跡を削除してください。エージェントの読み取りには Read/Grep/Glob ツールを使用してください。"
+    fi
+  fi
+fi
+
+# --- スコープ判定: git / gh の起動を含まないコマンドは一切妨げない ---
+SCOPE_RE='(^|[^[:alnum:]_])(git|gh)([[:space:]]|$)'
+printf '%s\n' "$CMD" | grep -Eq "$SCOPE_RE" || exit 0
+
+# ===== ここから下は Git/gh スコープ。異常はすべて fail-closed =====
 
 # --- M2-0: repository context anchoring（Issue #4）。writer/validator/gate が同一定義を
 #     共有する前提の関数（現時点は同文複製＝意味論の共有。実装共有方式は M2-A 開始前に決定）。
@@ -171,9 +221,8 @@ case "$CMD" in
 esac
 
 # --- 厳格 allowlist（単一行のみ）。L3 検査より先に照合する:
-#     メッセージ中の "commit-tree" 等の単語が L3 パターンへ誤ヒットするのを防ぐ ---
-ALLOW_D='^git commit -m "[^"\\$`]*"$'
-ALLOW_S="^git commit -m '[^']*'\$"
+#     メッセージ中の "commit-tree" 等の単語が L3 パターンへ誤ヒットするのを防ぐ
+#     （ALLOW_D / ALLOW_S の定義は Issue #11 lockdown と共用のため冒頭部にある） ---
 if printf '%s\n' "$CMD" | grep -Eq "$ALLOW_D" || printf '%s\n' "$CMD" | grep -Eq "$ALLOW_S"; then
   : # サポート形式の commit → 以降のゲート検査へ
 else
@@ -222,7 +271,18 @@ case "$GP" in
 esac
 [ -r "$GATE" ] || emit deny "review-gate 証跡（$GP）がありません。Verifier・Reviewer 完了後に review-pack skill で生成してください。"
 jq -e . "$GATE" >/dev/null 2>&1 || emit deny "review-gate 証跡をパースできません。review-pack skill で再生成してください。"
-jq -e '.schema_version == 1' "$GATE" >/dev/null 2>&1 || emit deny "review-gate 証跡の schema_version が 1 ではありません。再生成してください。"
+# --- Issue #11: 証跡 schema 分岐。READY（schema 1・gate_status なし）と
+#     ESCALATED_HUMAN_REQUIRED（schema 2）のみ有効。他の組合せは fail-closed ---
+GATE_SCHEMA=$(jq -r '.schema_version // empty' "$GATE" 2>/dev/null)
+GATE_STATUS=$(jq -r '.gate_status // empty' "$GATE" 2>/dev/null)
+GATE_MODE=""
+if [ "$GATE_SCHEMA" = "1" ] && [ -z "$GATE_STATUS" ]; then
+  GATE_MODE=READY
+elif [ "$GATE_SCHEMA" = "2" ] && [ "$GATE_STATUS" = "ESCALATED_HUMAN_REQUIRED" ]; then
+  GATE_MODE=HDR
+else
+  emit deny "review-gate 証跡の schema_version / gate_status の組合せが不正です（schema_version: ${GATE_SCHEMA:-未設定} / gate_status: ${GATE_STATUS:-なし}）。READY 証跡（schema_version 1・gate_status なし）または ESCALATED_HUMAN_REQUIRED 証跡（schema_version 2）のみ有効です（fail-closed）。"
+fi
 
 G_HASH=$(jq -r '.staged_diff_hash // empty' "$GATE")
 [ "$G_HASH" = "$HASH" ] || emit deny "staged diff がレビュー時から変更されています（証跡のハッシュ不一致）。再検証・再レビューのうえ証跡を再生成してください。"
@@ -254,6 +314,56 @@ fi
 
 jq -e '(.generated_at | type) == "string" and (.generated_at | length) > 0' "$GATE" >/dev/null 2>&1 \
   || emit deny "review-gate 証跡に generated_at がありません。再生成してください。"
+
+# --- Issue #11: ESCALATED(HDR) 経路 — positive allowlist・bindings 5キー全一致・
+#     Formal Human Resolution（人間作成 artifact）の検証。負条件による許可判定はしない ---
+if [ "$GATE_MODE" = "HDR" ]; then
+  [ "$FN" -ge 1 ] || emit deny "HDR 証跡の risk_final（${FINAL}）が L1 未満です。HDR 経路は L1/L2 のみ有効です（fail-closed）。"
+  jq -e '.escalation.classification == "HUMAN_DECISION_REQUIRED"' "$GATE" >/dev/null 2>&1 \
+    || emit deny "HDR 証跡の escalation.classification が HUMAN_DECISION_REQUIRED ではありません（fail-closed）。"
+  jq -e '.escalation.needs_human_review == true' "$GATE" >/dev/null 2>&1 \
+    || emit deny "HDR 証跡の escalation.needs_human_review が true ではありません（fail-closed）。"
+  jq -e '.escalation.needs_external_review == false' "$GATE" >/dev/null 2>&1 \
+    || emit deny "HDR 証跡の escalation.needs_external_review が false ではありません（fail-closed）。"
+  # bindings 5キー: 証跡の保存値を信頼せず、classify 再計算値との全一致を要求する
+  B_SUBJ=$(printf '%s' "$CLS_OUT" | jq -r '.review_subject_hash // empty')
+  B_PV=$(printf '%s' "$CLS_OUT" | jq -r '.policy_version // empty')
+  B_HEAD=$(printf '%s' "$CLS_OUT" | jq -r '.base_head // empty')
+  B_OFMT=$(printf '%s' "$CLS_OUT" | jq -r '.object_format // empty')
+  B_ROOT=$(printf '%s' "$CLS_OUT" | jq -r '.execution_root // empty')
+  [ -n "$B_SUBJ" ] && [ -n "$B_PV" ] && [ -n "$B_HEAD" ] && [ -n "$B_OFMT" ] && [ -n "$B_ROOT" ] \
+    || emit deny "classify 出力から binding 値を取得できません（fail-closed）。"
+  [ "$(jq -r '.bindings.review_subject_hash // empty' "$GATE")" = "$B_SUBJ" ] \
+    || emit deny "HDR 証跡の bindings.review_subject_hash が現在の staged 状態と一致しません（subject 変更により失効。fail-closed）。"
+  [ "$(jq -r '.bindings.policy_version // empty' "$GATE")" = "$B_PV" ] \
+    || emit deny "HDR 証跡の bindings.policy_version が現在の policy set と一致しません（policy 変更により失効。fail-closed）。"
+  [ "$(jq -r '.bindings.base_head // empty' "$GATE")" = "$B_HEAD" ] \
+    || emit deny "HDR 証跡の bindings.base_head が現在の HEAD と一致しません（HEAD 移動により失効。fail-closed）。"
+  [ "$(jq -r '.bindings.object_format // empty' "$GATE")" = "$B_OFMT" ] \
+    || emit deny "HDR 証跡の bindings.object_format が現在のリポジトリと一致しません（fail-closed）。"
+  [ "$(jq -r '.bindings.execution_root // empty' "$GATE")" = "$B_ROOT" ] \
+    || emit deny "HDR 証跡の bindings.execution_root が現在の execution root と一致しません（異なる execution_root を持つ repository/worktree への流用は拒否。fail-closed）。"
+  # Formal Human Resolution（人間がターミナルで作成。エージェントは guard により作成不能）
+  RGP=$(git_s -C "$ROOT" rev-parse --git-path claude-human-resolution.json 2>/dev/null) \
+    || emit deny "resolution の保存先を解決できません（fail-closed）。"
+  case "$RGP" in /*) RES="$RGP" ;; *) RES="$ROOT/$RGP" ;; esac
+  [ -r "$RES" ] || emit deny "Formal Human Resolution（claude-human-resolution.json）がありません。承認する場合は、承認パケットのワンライナーをユーザー自身のターミナルで実行して作成してください（エージェントは作成できません）。"
+  jq -e . "$RES" >/dev/null 2>&1 \
+    || emit deny "resolution を JSON として解析できません（fail-closed）。ユーザー自身のターミナルで再作成してください。"
+  jq -e '.schema_version == 1' "$RES" >/dev/null 2>&1 \
+    || emit deny "resolution の schema_version が 1 ではありません（fail-closed）。"
+  R_ACTION=$(jq -r '.action // empty' "$RES")
+  [ "$R_ACTION" = "approve" ] || emit deny "resolution の action（${R_ACTION:-未設定}）が approve ではありません（fail-closed）。"
+  R_SCHEME=$(jq -r '.hash_scheme // empty' "$RES")
+  [ "$R_SCHEME" = "git-blob-${B_OFMT}" ] \
+    || emit deny "resolution の hash_scheme（${R_SCHEME:-未設定}）が git-blob-${B_OFMT} と一致しません（fail-closed）。"
+  R_EH=$(jq -r '.evidence_hash // empty' "$RES")
+  [ -n "$R_EH" ] || emit deny "resolution に evidence_hash がありません（fail-closed）。"
+  E_CANON_H=$(jq -cS . "$GATE" 2>/dev/null | git_s hash-object --stdin 2>/dev/null)
+  [ -n "$E_CANON_H" ] || emit deny "証跡の canonical hash を計算できません（fail-closed）。"
+  [ "$R_EH" = "$E_CANON_H" ] \
+    || emit deny "resolution の evidence_hash が現在の証跡の canonical evidence identity と一致しません（証跡の変更・別証跡への流用により失効。fail-closed）。"
+fi
 
 # --- FR-09: staged 版 STATE.md の review-gate-state ブロック照合 ---
 # 文書全体への語句存在確認は行わない（過去フェーズの記録による誤通過を防ぐ）。
@@ -310,4 +420,7 @@ S_NR=$(sfield next_resume)
 
 UNRES=$(jq -r '.reviewer.unresolved_count // 0' "$GATE")
 HASH8=$(printf '%s' "$HASH" | cut -c1-8)
+if [ "$GATE_MODE" = "HDR" ]; then
+  emit ask "ESCALATED(HUMAN_DECISION_REQUIRED) が Formal Human Resolution により承認済み（human-resolved経路） — リスク=${FINAL}（機械的下限=${FLOOR}）/ Reviewer verdict=${VERDICT} / 重大指摘 0 件 / 未解決 ${UNRES} 件 / 変更 ${N_FILES} ファイル・${N_LINES} 行 / staged diff=${HASH8} — この staged 内容で commit を実行しますか？（このゲートは人間承認の代わりにはなりません）"
+fi
 emit ask "リスク=${FINAL}（機械的下限=${FLOOR}）/ Reviewer verdict=${VERDICT} / 重大指摘 0 件 / 未解決 ${UNRES} 件 / 変更 ${N_FILES} ファイル・${N_LINES} 行 / staged diff=${HASH8} — この staged 内容で commit を実行しますか？（このゲートは人間承認の代わりにはなりません）"

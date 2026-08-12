@@ -187,15 +187,24 @@ commit 前の変更を機械的なリスク下限・Critical Reviewer・review-g
 1. commit 対象のパスを**利用者が明示的に `git add`**（`git add .` / `git add -A` は使わない）
 2. `/review-pack` を実行（`disable-model-invocation: true` のため Claude は自動起動できない）
 3. スキルは最初に**既存の review-gate 証跡を削除**し、staged diff の存在と「unstaged な追跡ファイル変更がないこと」を確認してから、二段階レビュー（候補レビュー → STATE.md 同期 → 最終 staged diff への最終レビュー）を実行
-4. 判定が **READY の場合だけ** review-gate 証跡を生成します。**BLOCKED / ESCALATED では証跡を生成しません**（承認パケットは状態にかかわらず出力）
+4. 判定が **READY の場合**に review-gate 証跡（schema_version 1）を生成します。**ESCALATED のうち HDR 陽性証明が成立する場合のみ** schema_version 2 の HDR 証跡を生成し（下記「Formal Human Resolution」）、**BLOCKED・その他の ESCALATED では証跡を生成しません**（承認パケットは状態にかかわらず出力）
 5. `git commit -m "<message>"` を実行すると PreToolUse ゲートが証跡・ハッシュ・STATE ブロックを検査し、全条件成立でも自動 allow せず **`permissionDecision: ask`** を返します。Ask permissions が有効な環境では権限確認が表示され、許可した場合のみ commit されます（**Web の Auto accept 環境では ask UI が表示されない場合があります** — 「保証範囲と残存回避経路」の permission mode の項を参照）
 
 - review-gate 証跡は `git rev-parse --git-path claude-review-gate.json`（通常は `.git/` 配下）に保存され、**ワークツリーには生成されません**（gitignore 不要・change-log にも記録されません）。証跡は commit 前提条件の機械確認であり、**人間承認の証明ではありません**
 - STATE.md の `review-gate-state` ブロックは review-pack が更新し、ゲートが staged 版を照合します。任意の承認フラグを STATE.md に書いても人間承認の判定には使用されません
 
+### Formal Human Resolution（ESCALATED(HDR) の人間解消経路・Issue #11）
+
+- review-pack は ESCALATED のうち**機械的に陽性証明できる場合のみ**（needs_human_review==true ∧ critical_findings 0 件 ∧ verdict approve / approve_with_changes ∧ needs_external_review==false ∧ rollback.possible==true ∧ Verifier passed ∧ risk_final L1/L2。confidence は条件に使わない）、`gate_status: "ESCALATED_HUMAN_REQUIRED"` を持つ **schema_version 2 の証跡**を生成します。フィールド構成: schema_version / gate_status / phase / risk_floor / risk_final / staged_diff_hash / **bindings{review_subject_hash, policy_version, base_head, object_format, execution_root}** / verifier / reviewer / escalation{classification, needs_human_review, needs_external_review, reviewer_execution_index} / generated_at
+- 人間は**自身のターミナル**で resolution ファイル `claude-human-resolution.json`（`git rev-parse --git-path` 解決先）を作成して承認します。フィールド構成: `{"schema_version":1,"action":"approve","evidence_hash":"<jq -cS 証跡の git hash-object 値>","hash_scheme":"git-blob-<object_format>"}`（承認パケットに copy-paste 用ワンライナーが併記されます）。**作成・削除とも人間専用**で、エージェントの Write/Edit/NotebookEdit/Bash は guard により決定論的に拒否されます（最終成分が symlink である構造化ツール書き込みも、対象を問わず一律拒否する保守的規則を含む）
+- commit gate は resolution の evidence_hash（**canonical evidence identity** = `jq -cS` 正規化後の証跡 content に対する git hash。表記の再整形では変わらず、意味内容の変更で必ず変わる）と bindings 5 キーを classify 再計算値と全一致検証し、成立時のみ従来どおり **ask** を返します。subject / policy / HEAD / 証跡内容 / execution_root のいずれかが変われば承認は失効します（stale approval の拒否。execution_root が保証するのは「異なる execution_root を持つ repo/worktree への流用拒否」までで、repository identity そのものの保証ではありません。reviewer_execution_index は監査用 metadata であり一意性の保証子ではありません）
+- HDR 証跡が有効な間、エージェントの Bash は **exact allowlist（厳格 commit 形式・git status・git status --short・git diff --cached --stat の4種のみ）へ lockdown** されます（allowlist 方式のため難読化は定義上無効。読み取りは Read/Grep/Glob ツールで可能）。解除は人間の行為（commit 成立による HEAD 移動／証跡の削除）のみです。L3・external review required・technical blocking finding は resolution があっても迂回できません
+- rollback: 本機構を revert しても、残置された schema_version 2 証跡は旧 gate の schema==1 検査で自動 deny となり、「ESCALATED は commit 不可」という従来の安全側挙動へ完全に戻ります
+
 ### 保証範囲と残存回避経路（重要）
 
 - 本機能（hooks・permissions・Reviewer のすべて）は、**悪意あるプロセスに対するセキュリティ境界ではありません**。協調的に動作する Claude Code の誤り・見落としを減らす運用ガードです
+- **Formal Human Resolution の threat model**: 本機構が保証するのは cooperative / non-adversarial な agent に対する **workflow enforcement** であり、任意 Bash コード実行能力を意図的に悪用する adversarial な agent に対する完全な **security isolation** は非保証です。PreToolUse hook は「実行前のコマンド文字列」と「実行前のファイル状態」しか観測できないため、**lockdown 非発動時の単一 Bash invocation の実行結果を完全には拘束できません**（保証の天井。難読化された単一呼び出しによる証跡＋resolution の一括偽造や、難読化 Bash で事前設置した symlink / hard link 経由の書き込みは、この一般原理の実例です）。完全な isolation には off-box witness（外部照合）が必要で、将来強化のバックログ候補として記録しています
 - PreToolUse の文字列検査では検出できない回避経路が残ります: `sh -c '…'`・シェルエイリアス・`exec` / `command` 前置・スクリプトファイル経由の Git 実行・エンコード表現・Git plumbing の間接表現など
 - 統制スクリプト自体を弱体化して stage する改変は、staged/worktree 整合性検査では止まりません（ただし必ず staged diff に含まれ、L2（保護対象）・Reviewer レビュー・チャット上のユーザー承認の対象になります。ask UI の表示は permission mode に依存します）
 - **permissions.deny / ask はプレフィックス一致の「単独形の正規形」だけが対象です**（例: `git push --force …` で始まるコマンド）。`cd … && git push --force` のような複合形や `/usr/bin/git` のようなパス前置形には一致しません（実測確認済み）。これらはフック層（コマンド文字列全体への部分一致）が実効統制です。permissions はフック削除時にも残る独立防御層として維持します

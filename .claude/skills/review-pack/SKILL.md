@@ -11,10 +11,15 @@ commit 前の統制フローを統括するスキル。**ユーザーが `/revie
 ## 処理順序（この順で厳守。逸脱・省略・並べ替え禁止）
 
 ```
- 1. 既存 review-gate の削除（他のどの確認よりも先）:
+ 1. 既存 review-gate の確認と削除（他のどの確認よりも先）:
       GATE_PATH=$(git rev-parse --git-path claude-review-gate.json)
-      rm -f "$GATE_PATH"
-    以後、途中失敗・BLOCKED・ESCALATED の場合は証跡が存在しない状態を維持する
+      HDR 証跡（jq -r '.gate_status' が ESCALATED_HUMAN_REQUIRED）が存在する場合は削除せず
+      停止し、ユーザーへ「resolution 作成（approve）」または「証跡削除（discard/rework）」の
+      判断を仰ぐ（いずれもユーザー自身のターミナルで行う。Layer 3 lockdown 中はエージェント
+      の rm も拒否される）。HDR 証跡でなければ rm -f "$GATE_PATH" で削除する。
+      resolution（claude-human-resolution.json）にはいかなる場合も触れない
+      （作成・変更・削除・stage 禁止。作成・削除は人間専用）
+    以後、途中失敗・BLOCKED・ESCALATED の場合は READY 証跡が存在しない状態を維持する
  2. staged diff の存在確認: git diff --cached --quiet が「差分あり（exit 1）」であること。
     差分なし → BLOCKED（レビューを開始しない）
  3. unstaged な追跡ファイル変更がないことを確認: git diff --quiet が「差分なし（exit 0）」であること。
@@ -44,7 +49,9 @@ commit 前の統制フローを統括するスキル。**ユーザーが `/revie
     ⇔ risk_final。不一致 → 実行回数（合計3回）の余地が残っていれば STATE.md を1回だけ修正して
     手順7〜11 を再実行。余地がなければ ESCALATED
 12. READY ／ BLOCKED ／ ESCALATED を下記判定表で決定（ESCALATED > BLOCKED > READY の順に評価）
-13. READY の場合だけ review-gate を生成（下記仕様）。BLOCKED・ESCALATED では生成しない
+13. READY の場合は review-gate（schema_version 1）を生成（下記仕様）。ESCALATED のうち
+    HDR 陽性証明（下記「ESCALATED(HDR) 証跡の生成仕様」）が成立する場合のみ schema_version 2
+    の HDR 証跡を生成する。BLOCKED・その他の ESCALATED では生成しない
 14. 状態にかかわらず承認パケットを出力（下記様式）
 15. 停止。commit はユーザーの指示と PreToolUse ゲートの ask を経てのみ実行される
 ```
@@ -121,6 +128,63 @@ jq -n \
 - staged_diff_hash / risk_floor は classify-risk.sh の出力値のみを使う（手書き禁止）
 - reviewer.reviewed_diff_hash は監査用の保存であり、commit ゲートの必須検査項目ではない
 
+## ESCALATED(HDR) 証跡の生成仕様（Issue #11・schema_version 2）
+
+**HDR 陽性証明（すべて機械可読フィールドのみによる判定・自然言語推論禁止）**: review-pack が
+手順内で既に保持する最終 Reviewer YAML・Verifier 結果・risk classification が次の positive
+conjunction を全て満たす場合のみ生成する:
+`needs_human_review==true ∧ critical_findings==[] ∧ verdict∈{approve, approve_with_changes}
+∧ needs_external_review==false ∧ rollback.possible==true ∧ Verifier passed==true ∧ risk_final∈{L1,L2}`
+さらに手続き的除外: Reviewer 実行3回で結果が安定しない・同一重大指摘2回連続の ESCALATED では
+生成しない。confidence は条件に使用しない（low でも conjunction 成立なら生成する）。
+上記で陽性証明できないケースは一律生成しない（従来どおり行き止まり・fail-closed）。
+
+生成コマンド形（bindings は classify-risk.sh の出力値のみを転記・手書き禁止。Bash で生成する）:
+
+```sh
+GATE_PATH=$(git rev-parse --git-path claude-review-gate.json)
+CLS=$(sh .claude/hooks/classify-risk.sh)
+jq -n \
+  --arg phase "<STATE ブロックと同一の phase>" \
+  --arg rf "<最終 risk_floor>" --arg rl "<risk_final>" \
+  --arg h "$(printf '%s' "$CLS" | jq -r .staged_diff_hash)" \
+  --arg bsub "$(printf '%s' "$CLS" | jq -r .review_subject_hash)" \
+  --arg bpv "$(printf '%s' "$CLS" | jq -r .policy_version)" \
+  --arg bhead "$(printf '%s' "$CLS" | jq -r .base_head)" \
+  --arg bofmt "$(printf '%s' "$CLS" | jq -r .object_format)" \
+  --arg broot "$(printf '%s' "$CLS" | jq -r .execution_root)" \
+  --arg vc "<verifier confidence>" --arg vd "<verdict>" --arg rc "<reviewer confidence>" \
+  --argjson unres "<unresolved_issues 件数>" --argjson eidx "<Reviewer 実行回数(1-3)>" \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '{schema_version: 2, gate_status: "ESCALATED_HUMAN_REQUIRED",
+    phase: $phase, risk_floor: $rf, risk_final: $rl, elevation_reason: [],
+    staged_diff_hash: $h,
+    bindings: {review_subject_hash: $bsub, policy_version: $bpv, base_head: $bhead,
+               object_format: $bofmt, execution_root: $broot},
+    verifier: {passed: true, confidence: $vc},
+    reviewer: {verdict: $vd, critical_findings_count: 0, unresolved_count: $unres,
+               confidence: $rc, reviewed_diff_hash: $h},
+    escalation: {classification: "HUMAN_DECISION_REQUIRED", needs_human_review: true,
+                 needs_external_review: false, reviewer_execution_index: $eidx,
+                 _index_note: "監査用metadata。一意identityは本証跡のcanonical content hash"},
+    external_review: {required: false, completed: false},
+    generated_at: $ts}' > "$GATE_PATH"
+```
+
+- 生成後は commit gate の Layer 3 lockdown が発動し、エージェントの Bash は exact allowlist
+  （厳格 commit 形式・git status・git status --short・git diff --cached --stat）に制限される。
+  解除は人間の行為（commit 成立による HEAD 移動／証跡の人間削除）のみ
+- resolution（claude-human-resolution.json）の作成・削除は**人間専用**（guard が全エージェント
+  ツールで拒否する）。resolution のフィールド構成は
+  `{"schema_version":1,"action":"approve","evidence_hash":"<jq -cS 証跡のgit hash-object値>","hash_scheme":"git-blob-<object_format>"}`
+- 承認パケットの末尾に、ユーザー自身のターミナルで実行する2種のワンライナーを必ず併記する
+  （`<object_format>` は classify 出力値へ置換して提示する）:
+  - approve 用:
+    `EH=$(jq -cS . "$(git rev-parse --git-path claude-review-gate.json)" | git hash-object --stdin) && printf '{"schema_version":1,"action":"approve","evidence_hash":"%s","hash_scheme":"git-blob-<object_format>"}' "$EH" > "$(git rev-parse --git-path claude-human-resolution.json)"`
+  - discard / rework 用: `rm "$(git rev-parse --git-path claude-review-gate.json)"`
+    （削除後に修正・`/review-pack` 再起動。stale な resolution が残っても evidence_hash
+    不一致で無害＝必要なら人間が削除する）
+
 ## 承認パケットの様式（状態にかかわらず出力）
 
 ```markdown
@@ -142,6 +206,8 @@ jq -n \
 ## ロールバック
 - 戻し方 / 不可逆な影響
 ## 人間が判断すること（Yes / No で回答できる質問を最大3件）
+## Formal Human Resolution（ESCALATED(HDR) のときのみ）
+- approve 用ワンライナー／discard 用ワンライナー（ユーザー自身のターミナルで実行。生成仕様の節を参照）
 ```
 
 ## 禁止事項
@@ -149,12 +215,19 @@ jq -n \
 - classify-risk.sh の出力以外のハッシュ・床の記入（証跡の手書き偽装）
 - critical_findings の削減・言い換え・要約転記
 - STATE ブロックと証跡の不一致な記入
-- BLOCKED・ESCALATED での証跡生成、READY 以外での証跡温存
+- BLOCKED・ESCALATED での READY 証跡（schema_version 1）生成、HDR 陽性証明が成立しない
+  ESCALATED での schema_version 2 証跡生成、READY/HDR 以外での証跡温存
+- resolution（claude-human-resolution.json）の作成・変更・削除・stage（人間専用。エージェント
+  全ツールで guard により拒否される）
 - 最終レビュー後のファイル変更・git add・git reset
 - git add -A / git add . による無差別 stage
 - レビューしていない差分への証跡発行（「先レビュー→後 STATE 更新ハッシュ」の順序逆転）
 
 ## 保証範囲の注記
 
-本スキルの実行回数上限・凍結・READY 限定生成は手順規律（LLM の遵守）であり、決定的な強制は
-commit ゲート（classify-risk.sh / commit-review-gate.sh）が最終状態に対して行う。詳細は README の保証範囲を参照。
+本スキルの実行回数上限・凍結・READY/HDR 限定生成は手順規律（LLM の遵守）であり、決定的な強制は
+commit ゲート（classify-risk.sh / commit-review-gate.sh）が最終状態に対して行う。
+Formal Human Resolution 機構の threat model は「cooperative / non-adversarial agent に対する
+workflow enforcement を保証し、任意 Bash を敵対的に悪用する agent への完全な security isolation
+は非保証とする」（PreToolUse hook は lockdown 非発動時の単一 Bash invocation の実行結果を
+完全には拘束できない——保証の天井）。詳細は README の保証範囲を参照。

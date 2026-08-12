@@ -109,12 +109,13 @@ trap 'rm -f "$MANIFEST_TMP" "$POLICY_TMP"' EXIT
 # 期待 mode: hooks 2本 = 100755 / 他6本 = 100644（M1-A checkpoint commit 時点の実測に一致）
 policy_expected_mode() {
   case "$1" in
-    .claude/hooks/classify-risk.sh|.claude/hooks/commit-review-gate.sh) printf '100755\n' ;;
+    .claude/hooks/classify-risk.sh|.claude/hooks/commit-review-gate.sh|.claude/hooks/guard-skip-file.sh) printf '100755\n' ;;
     *) printf '100644\n' ;;
   esac
 }
 POLICY_SET='.claude/hooks/classify-risk.sh
 .claude/hooks/commit-review-gate.sh
+.claude/hooks/guard-skip-file.sh
 .claude/risk-rules.json
 .claude/skills/review-pack/SKILL.md
 .claude/agents/reviewer-lite.md
@@ -136,11 +137,14 @@ done <<EOF
 $POLICY_SET
 EOF
 
-# --- M1-B: policy_version（policy set 8ファイルの index 内容から算出） ---
+# --- M1-B: policy_version（policy set 9ファイルの index 内容から算出。
+#     Issue #11 で guard フックを追加＝commit eligibility 統制ファイルの
+#     POLICY_SET 同時登録規則〔確定事項1〕による） ---
 POLICY_TMP=$(mktemp "${TMPDIR:-/tmp}/classify-policy.XXXXXX") || fail "一時ファイルを作成できません"
 git_s -C "$ROOT" ls-files -s -z -- \
   .claude/hooks/classify-risk.sh \
   .claude/hooks/commit-review-gate.sh \
+  .claude/hooks/guard-skip-file.sh \
   .claude/risk-rules.json \
   .claude/skills/review-pack/SKILL.md \
   .claude/agents/reviewer-lite.md \
